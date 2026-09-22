@@ -56,6 +56,7 @@ jobs:
           sha8=$(python3 scripts/tag.py --sha8)
           date=$(date +%Y%m%d)
           echo "tag=glm-flash-v2-${date}-${sha8}" | tee -a "$GITHUB_OUTPUT"
+          echo "stable=glm-flash-v2-${sha8}" | tee -a "$GITHUB_OUTPUT"
 
       - name: Skip if tag already published
         id: present
@@ -112,8 +113,11 @@ jobs:
       - name: Assemble tags on the pushed digest
         if: steps.present.outputs.exists != 'true'
         run: |
+          # dated tag (the deploy reference) + dateless stable tag (the serving repo pins
+          # this one; same digest, no rebuild)
           docker buildx imagetools create \
             -t "$IMAGE:${{ steps.tag.outputs.tag }}" \
+            -t "$IMAGE:${{ steps.tag.outputs.stable }}" \
             "$IMAGE@${{ steps.build.outputs.digest }}"
 
       - name: Release build cache before reporting
