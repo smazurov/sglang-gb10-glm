@@ -1,16 +1,36 @@
 name: build
-# Build + publish the candidate image on public hosted infra (no GPUs, no
-# cluster). Publishes after the in-build gates pass; checkpoint-coupled
-# validation (T1/T2/T3) is ad hoc on the cluster — see validation/commands.md.
+# Build, validate, and publish the candidate image on public hosted infra
+# (no GPUs, no cluster). Job graph:
 #
-# Disk budget on standard runners: single ~72G root (docs say 14 GB usable —
-# that is a service level, not the device). After jlumbroso cleanup the arm64
-# image has ~55G free; the pinned base is 14.2 GiB compressed (~30-35 unpacked).
-# The df assert below fails loudly if the runner layout changes.
+#   tag ──> wheels ──> build ──> pre-test ──> tags ──> receipts
+#     └──────────────────────────────^ (pre-test also runs standalone on force_t1)
+#
+# - tag:      content-addressed tag; skip decision when already published
+# - wheels:   cache-or-fetch the pinned wheels (artifact, ~30 MB)
+# - build:    push the image by digest (in-build gates run inside the Dockerfile)
+# - pre-test: CPU processor gate against the published digest, using the
+#             vendored MIT-licensed checkpoint interface files (checkpoint/)
+# - tags:     assemble the dated + stable tags ONLY after pre-test passes; an
+#             unnamed digest stays garbage-collectable
+# - receipts: run summary (tag, digest, per-job outcomes)
+#
+# publish ≠ accepted: cluster-side T2 (GPU) and T3 (serving) remain ad hoc —
+# see validation/commands.md. A pre-test failure leaves the workflow red and
+# no tags; the digest exists but is unnamed.
+#
+# force_t1 (workflow_dispatch): re-run the CPU gate against the ALREADY
+# PUBLISHED stable tag (e.g. after a checkpoint-interface bump with an
+# unchanged recipe). Never rebuilds: a same-tag rebuild would move the stable
+# tag to a new digest, breaking content addressing.
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force_t1:
+        description: 'Re-run the T1 CPU gate against the published stable tag'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,37 +38,23 @@ permissions:
 
 env:
   IMAGE: ghcr.io/smazurov/sglang-gb10-glm
+  SNAPSHOT: /cache/huggingface/hub/models--local-inference-lab--GLM-5.3-Flash-NVFP4-Spark/snapshots/53e77dbb04fa9dd68725daa899ec92eabf8a872c
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
+  tag:
     runs-on: ubuntu-24.04-arm
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      stable: ${{ steps.tag.outputs.stable }}
+      exists: ${{ steps.present.outputs.exists }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: false
-          swap-storage: false
-
-      - name: Assert runner disk layout (receipt + fail-closed)
-        run: |
-          df -hT | tee "$GITHUB_STEP_SUMMARY"
-          free_gb=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
-          echo "free: ${free_gb}G" | tee -a "$GITHUB_STEP_SUMMARY"
-          if [ "$free_gb" -lt 50 ]; then
-            echo "::error::runner disk layout changed (${free_gb}G free < 50G); re-evaluate build topology"
-            exit 1
-          fi
-
-      - name: Install build deps
+      - name: Install deps
         run: python3 -m pip install --user pyyaml packaging
-
       - name: Content-addressed tag
         id: tag
         run: |
@@ -57,45 +63,59 @@ jobs:
           date=$(date +%Y%m%d)
           echo "tag=glm-flash-v2-${date}-${sha8}" | tee -a "$GITHUB_OUTPUT"
           echo "stable=glm-flash-v2-${sha8}" | tee -a "$GITHUB_OUTPUT"
-
       - name: Skip if tag already published
         id: present
         run: |
-          if docker manifest inspect "$IMAGE:${{ steps.tag.outputs.tag }}" > /dev/null 2>&1; then
-            echo "Tag already published; skipping build." | tee -a "$GITHUB_STEP_SUMMARY"
+          if docker manifest inspect "$IMAGE:${{ steps.tag.outputs.stable }}" > /dev/null 2>&1; then
+            echo "Tag already published; build and wheels jobs will be skipped." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
+  wheels:
+    if: needs.tag.outputs.exists != 'true'
+    needs: tag
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
       - name: Wheel cache
-        if: steps.present.outputs.exists != 'true'
         uses: actions/cache@v4
         with:
           path: wheels
           key: wheels-${{ hashFiles('contracts/requirements.lock') }}
-
       - name: Fetch wheels (sha256 contract verified)
-        if: steps.present.outputs.exists != 'true'
         run: python3 scripts/fetch-wheels.py
+      - name: Upload wheels artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels
+          path: wheels/
+          retention-days: 1
 
-      - name: Set up Buildx
-        if: steps.present.outputs.exists != 'true'
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GHCR
-        if: steps.present.outputs.exists != 'true'
-        uses: docker/login-action@v3
+  build:
+    if: needs.tag.outputs.exists != 'true'
+    needs: [tag, wheels]
+    runs-on: ubuntu-24.04-arm
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare-runner
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheels
+          path: wheels/
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       # Upstream sglang's push-by-digest pattern: build once, push the digest,
-      # then assemble named tags on it (no rebuild per tag).
+      # assemble named tags later (no rebuild per tag).
       - name: Build and push by digest
         id: build
-        if: steps.present.outputs.exists != 'true'
         run: |
           set -eu
           docker buildx build \
@@ -104,38 +124,96 @@ jobs:
             -f docker/Dockerfile \
             --build-arg IMAGE_SOURCE="${{ github.server_url }}/${{ github.repository }}" \
             --build-arg IMAGE_REVISION="${{ github.sha }}" \
-            --build-arg IMAGE_VERSION="${{ steps.tag.outputs.tag }}" \
+            --build-arg IMAGE_VERSION="${{ needs.tag.outputs.tag }}" \
             --metadata-file /tmp/metadata.json \
             .
           digest=$(python3 -c "import json; print(json.load(open('/tmp/metadata.json'))['containerimage.digest'])")
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-
-      - name: Assemble tags on the pushed digest
-        if: steps.present.outputs.exists != 'true'
-        run: |
-          # dated tag (the deploy reference) + dateless stable tag (the serving repo pins
-          # this one; same digest, no rebuild)
-          docker buildx imagetools create \
-            -t "$IMAGE:${{ steps.tag.outputs.tag }}" \
-            -t "$IMAGE:${{ steps.tag.outputs.stable }}" \
-            "$IMAGE@${{ steps.build.outputs.digest }}"
-
-      - name: Release build cache before reporting
-        if: steps.present.outputs.exists != 'true'
+      - name: Release build cache
         run: docker buildx prune -f
 
-      - name: Publish receipts
-        if: always()
+  pre-test:
+    # CPU processor gate: checkpoint-coupled validation, in CI — the vendored
+    # interface files (checkpoint/, MIT) are the gate's inputs; the gate
+    # verifies them against the baked sha256 contract fail-closed.
+    needs: [tag, build]
+    if: always() && (needs.build.result == 'success' || inputs.force_t1 == true)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare-runner
+      - name: Install deps
+        run: python3 -m pip install --user pyyaml packaging
+      - name: Resolve the published digest
+        id: digest
         run: |
+          set -eu
+          digest=$(docker buildx imagetools inspect "$IMAGE:${{ needs.tag.outputs.stable }}" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "digest=$digest" | tee -a "$GITHUB_OUTPUT"
+      - name: Normalize checkpoint metadata (pinned hash)
+        run: |
+          set -eu
+          python3 gates/normalize_modelopt.py < checkpoint/config.json > modelopt-flat-config.json
+          got=$(sha256sum modelopt-flat-config.json | cut -d' ' -f1)
+          want=$(python3 -c "import yaml; print(yaml.safe_load(open('profile.yaml'))['checkpoint']['metadata']['normalized_sha256'])")
+          test "$got" = "$want" || { echo "::error::normalized metadata hash drift: $got != $want"; exit 1; }
+      - name: Run the pre-test CPU processor gate (offline, runc, 4 GiB)
+        run: |
+          set -eu
+          docker pull --quiet "$IMAGE@${{ steps.digest.outputs.digest }}"
+          docker run --rm --pull=never --runtime=runc --network=none \
+            --memory=4g --cpus=4 \
+            --entrypoint /opt/sglang/bin/python3 \
+            -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
+            -v "$PWD/checkpoint:$SNAPSHOT:ro" \
+            -v "$PWD/modelopt-flat-config.json:$SNAPSHOT/config.json:ro" \
+            "$IMAGE@${{ steps.digest.outputs.digest }}" \
+            /opt/glm-gates/gate-processor.py "$SNAPSHOT" \
+            | tee /tmp/pre-test-gate.log
+          grep -q GLM_PROCESSOR_PASS /tmp/pre-test-gate.log
+
+  tags:
+    # Named tags land only after pre-test passes; unnamed digests are collectable.
+    if: needs.tag.outputs.exists != 'true'
+    needs: [tag, build, pre-test]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Assemble tags on the pushed digest
+        run: |
+          # dated tag (deploy reference) + dateless stable tag (the serving repo pins
+          # this one); same digest, no rebuild
+          docker buildx imagetools create \
+            -t "$IMAGE:${{ needs.tag.outputs.tag }}" \
+            -t "$IMAGE:${{ needs.tag.outputs.stable }}" \
+            "$IMAGE@${{ needs.build.outputs.digest }}"
+
+  receipts:
+    needs: [tag, build, pre-test, tags]
+    if: always()
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Publish receipts
+        run: |
+          build_out="${{ needs.build.result }}"
+          pre_test_out="${{ needs.pre-test.result }}"
           {
             echo "## build receipt"
             echo ""
             echo "| field | value |"
             echo "|---|---|"
-            echo "| tag | \`${{ steps.tag.outputs.tag }}\` |"
-            echo "| digest | \`${{ steps.build.outputs.digest }}\` |"
-            echo "| image | \`$IMAGE:${{ steps.tag.outputs.tag }}\` |"
+            echo "| stable tag | \`${{ needs.tag.outputs.stable }}\` |"
+            echo "| dated tag | \`${{ needs.tag.outputs.tag }}\` |"
+            echo "| build | $build_out |"
+            echo "| digest | \`${{ needs.build.outputs.digest }}\` |"
+            echo "| pre-test CPU gate | $pre_test_out |"
+            echo "| tags | ${{ needs.tags.result }} |"
             echo ""
-            echo "Candidate only: T0 (in-build gates) passed. T1/T2/T3 are"
-            echo "cluster-side; run validation/commands.md before adoption."
+            echo "T2 (GPU) and T3 (serving) are cluster-side: validation/commands.md."
           } >> "$GITHUB_STEP_SUMMARY"

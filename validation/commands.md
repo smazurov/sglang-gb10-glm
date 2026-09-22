@@ -1,10 +1,12 @@
 # Cluster validation — how to test a published candidate
 
-CI (public infra) validates only image-internal properties and publishes the
-candidate. Everything checkpoint-coupled runs here, on the cluster, against
-the pinned snapshot — ad hoc, never in CI. The image is self-validating: its
-gates are baked into `/opt/glm-gates`, so these commands need the image and
-the cluster's HF cache, not this repository.
+CI (public infra) validates image-internal properties plus the CPU processor
+pre-test against the vendored interface files, and publishes the candidate
+(tags assemble only after pre-test passes). The cluster session is for what
+CI structurally cannot do: the GPU gates, the serving acceptance, and the
+pre-test re-run against the real snapshot as a drift check. The image is
+self-validating: its gates are baked into `/opt/glm-gates`, so these commands
+need the image and the cluster's HF cache, not this repository.
 
 Run on the head unless stated otherwise. Record every receipt (command
 output, image digest, checkpoint revision) in the the serving repo's guide's accepted
@@ -17,7 +19,13 @@ IMAGE=ghcr.io/smazurov/sglang-gb10-glm:<tag>          # candidate tag
 docker pull "$IMAGE"                                 # head has internet; nodes get it via the fabric registry
 ```
 
-## T1 — CPU processor gate (no GPU, no weights)
+## pre-test — CPU processor gate (runs in CI now)
+
+CI runs this gate against the vendored checkpoint interface files
+(`checkpoint/`, MIT — no weights). The same command re-run on the cluster
+against the **real snapshot** is a drift check: it proves the head's
+cached files still match the contract the CI-validated candidate was
+gated on.
 
 Verifies the pinned checkpoint's small files against the baked sha256
 contract, then runs real `AutoProcessor`/`get_processor` paths, pixel/grid

@@ -103,21 +103,23 @@ dependency_overlay:
   baseline: dependency-baseline.json
 
 checkpoint:
-  # By reference only — this repo carries no checkpoint data, neither weights
-  # nor small files. All checkpoint-coupled validation (T1 CPU processor gate,
-  # T2 GPU gate, T3 serving acceptance) runs on the cluster against the pinned
-  # snapshot; see validation/commands.md.
+  # Processor-interface files are vendored under checkpoint/ (six small files,
+  # ~20.6 MB, dominated by tokenizer.json) — MIT-licensed (© 2026 Z.AI, see
+  # checkpoint/LICENSE), no secrets/PII. Weights are never vendored and never
+  # enter CI. The vendored files let CI run the full CPU processor pre-test;
+  # the cluster session re-runs it against the real snapshot as a drift check.
   repository: local-inference-lab/GLM-5.3-Flash-NVFP4-Spark
   revision: 53e77dbb04fa9dd68725daa899ec92eabf8a872c
-  # sha256 contract over the checkpoint's small files (config/tokenizer/
-  # processor). The in-image T1 gate verifies it fail-closed against the
-  # cluster's snapshot before anything else runs.
+  # sha256 contract over the six small files. NOTE: the config.json entry
+  # refers to the NORMALIZED config (the metadata producer's deterministic
+  # output), which is what the gate mounts over the original config.json —
+  # not the original (e1c0246a…). tests/test_checkpoint_files.py asserts the
+  # vendored originals + regenerated normalized config against this contract.
   file_contract: contracts/processor-metadata.json
   metadata:
-    # Normalized ModelOpt metadata producer, baked into the image; the cluster
-    # generates the runtime config from the checkpoint's config.json with:
-    #   docker run -i <image> /opt/sglang/bin/python3 /opt/glm-gates/normalize_modelopt.py < config.json
+    # Normalized ModelOpt metadata producer, baked into the image; CI and the
+    # cluster both run: docker run -i <image> /opt/sglang/bin/python3 /opt/glm-gates/normalize_modelopt.py < config.json
     producer: gates/normalize_modelopt.py
-    # Pin the normalized output hash after the first accepted T1 receipt;
-    # CI/cluster re-derivation must then reproduce it exactly.
-    normalized_sha256: null
+    # Pin verified 2026-09-22: normalization of the vendored original
+    # reproduces the contract hash exactly.
+    normalized_sha256: e640b42090aeebf0c1de87b8d61ffd0549b433f9dbc26157934e0346136417ba

@@ -1,0 +1,25 @@
+name: 'Prepare runner disk'
+description: 'Reclaim preinstalled bloat and assert the disk layout the build budget assumes'
+runs:
+  using: 'composite'
+  steps:
+    - name: Free disk space
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: false
+        swap-storage: false
+    - name: 'pre-test: total free disk ≥ 50G (fail-closed, records layout receipt)'
+      shell: bash
+      run: |
+        df -hT | tee -a "$GITHUB_STEP_SUMMARY"
+        free_gb=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+        echo "free: ${free_gb}G" | tee -a "$GITHUB_STEP_SUMMARY"
+        if [ "$free_gb" -lt 50 ]; then
+          echo "::error::runner disk layout changed (${free_gb}G free < 50G); re-evaluate build topology"
+          exit 1
+        fi

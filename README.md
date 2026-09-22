@@ -44,13 +44,15 @@ validation/       commands.md — cluster-side T1/T2/T3 validation (ad hoc, GPU 
 | tier | where | what | gates |
 |---|---|---|---|
 | T0 | CI, free `ubuntu-24.04-arm` | patch series applies at pin, exact tree hashes, contract tests, tag determinism | merge |
-| T0-build | CI, `ubuntu-24.04-arm` + `jlumbroso/free-disk-space` | image build with in-build gates: dep contract, offline hash-locked wheel install, tree identity, compileall, import identity, dependency before/after audits | publish |
-| T1 | cluster (ad hoc) | CPU processor gate vs pinned checkpoint | acceptance |
+| build | CI, `ubuntu-24.04-arm` + `jlumbroso/free-disk-space` | image build with in-build gates: dep contract, offline hash-locked wheel install, tree identity, compileall, import identity, dependency before/after audits | — |
+| pre-test (T1) | CI, after build | CPU processor gate vs the vendored checkpoint interface files (`checkpoint/`, MIT) | publish (tags assemble only after it passes) |
 | T2 | cluster (ad hoc, GPU) | CUDA-kernel/numerical/IPC gates | acceptance |
 | T3 | the serving repo (ad hoc) | serving acceptance per the the serving repo's guide | accepted tuple |
 
-Publish ≠ accepted: CI publishes candidates; only recorded T1–T3 receipts
-change the accepted tuple in the serving repo's guide.
+Publish ≠ accepted: CI publishes candidates after build + pre-test; only
+recorded T2/T3 receipts change the accepted tuple in the serving repo's guide. The
+gate scripts are baked into the image, so the cluster commands need no code
+from this repo.
 
 ## Flows
 
