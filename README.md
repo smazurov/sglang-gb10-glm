@@ -86,6 +86,6 @@ python3 scripts/verify-tree.py           # patch series vs exact tree hashes
 docker buildx build -f docker/Dockerfile .   # context = repo root
 ```
 
-First accepted candidate: `glm-flash-v2-5277dc10` (manifest
-`sha256:44fbc13d…`) — CI pre-test `GLM_PROCESSOR_PASS` receipt recorded
+Current candidate: `glm-flash-v2-8bb31a67` (manifest
+`sha256:83c67f46…`) — CI pre-test `GLM_PROCESSOR_PASS` receipt recorded
 2026-09-22; cluster T2/T3 receipts pending.
