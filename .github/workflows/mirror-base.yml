@@ -8,9 +8,11 @@ name: mirror-base
 # image build pulls from GHCR and the image push can cross-repo-mount the
 # shared base blobs (buildkit's mount path) instead of re-uploading 14 GiB.
 #
-# Provenance is preserved by asserting the mirror's arm64 manifest digest is
-# byte-identical to the upstream manifest (content addressing does the work;
-# the mirror is a transport cache, not a fork).
+# Byte identity is enforced twice: skopeo copy --preserve-digests fails
+# closed if it cannot preserve the manifest digest, and the assert fetches
+# the raw manifest and requires sha256(bytes) == the pinned digest. (Plain
+# `docker push` re-serializes OCI manifests into Docker v2 and changes the
+# digest — that is exactly what this workflow exists to avoid.)
 on:
   workflow_dispatch:
 
@@ -28,36 +30,38 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/prepare-runner
-      - uses: docker/setup-buildx-action@v4
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Pull pinned base (arm64)
-        run: docker pull --platform linux/arm64 "$UPSTREAM"
-      - name: Mirror into GHCR
+      - name: Install skopeo
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq skopeo
+      - name: Copy base into GHCR (digest-preserving)
         id: push
         run: |
-          set -eu
+          set -eu -o pipefail
           short=$(echo "$UPSTREAM" | sed 's/.*sha256://; s/^\(........\).*/\1/')
-          docker tag "$UPSTREAM" "$MIRROR:candidate"
-          docker push --quiet "$MIRROR:candidate"
-          docker tag "$UPSTREAM" "$MIRROR:$short"
-          docker push --quiet "$MIRROR:$short"
+          # streams blob-by-blob; --preserve-digests fails closed unless the
+          # manifest bytes survive the round trip
+          skopeo copy --preserve-digests \
+            "docker://lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53" \
+            "docker://$MIRROR:$short"
           echo "short=$short" >> "$GITHUB_OUTPUT"
-      - name: Assert byte-identical mirror (provenance)
+      - name: Assert byte-identical mirror (raw manifest sha256 == pinned digest)
         run: |
-          set -eu
+          set -eu -o pipefail
           short=${{ steps.push.outputs.short }}
-          expect=$(docker buildx imagetools inspect --platform linux/arm64 "$UPSTREAM" \
-            --format '{{json .Manifest.Digest}}' | tr -d '"')
-          got=$(docker buildx imagetools inspect --platform linux/arm64 "$MIRROR:$short" \
-            --format '{{json .Manifest.Digest}}' | tr -d '"')
-          test "$got" = "$expect" || { echo "::error::mirror drift: $got != $expect"; exit 1; }
+          pinned="sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53"
+          skopeo inspect --raw "docker://lmsysorg/sglang@$pinned" > /tmp/upstream.json
+          skopeo inspect --raw "docker://$MIRROR:$short" > /tmp/mirror.json
+          up=$(sha256sum /tmp/upstream.json | cut -d' ' -f1)
+          mi=$(sha256sum /tmp/mirror.json | cut -d' ' -f1)
+          test "$up" = "$pinned" || { echo "::error::upstream manifest hash $up != pinned $pinned"; exit 1; }
+          test "$mi" = "$up" || { echo "::error::mirror drift: $mi != $up"; exit 1; }
           {
             echo "## base mirror receipt"
             echo ""
-            echo "mirror ref for the build pin: \`$MIRROR@${got}\`"
-            echo "upstream: \`$UPSTREAM\` (arm64 manifest digest identical — byte-identical transport mirror)"
+            echo "mirror ref for the build pin: \`$MIRROR@$pinned\`"
+            echo "raw manifest sha256: \`$mi\` (byte-identical to upstream)"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -25,9 +25,9 @@ base:
   #
   # Pulled from the GHCR transport mirror (see .github/workflows/mirror-base.yml):
   # Docker Hub pulls from hosted runners are the slow, high-variance leg
-  # (observed 1.7-70 MB/s for the same blobs within an hour); the mirror is
-  # re-pushed byte-identically per base-pin change and CI asserts the arm64
-  # manifest digest matches upstream, so this is a transport cache, not a
+  # (observed 1.7-70 MB/s for the same blobs within an hour); mirror-base.yml
+  # copies with skopeo --preserve-digests and asserts sha256(raw manifest) ==
+  # the pinned digest, so this is a byte-identical transport cache, not a
   # fork. Upstream origin: docker.io/lmsysorg/sglang@sha256:df8461b8…
   image: ghcr.io/smazurov/sglang-base@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
 
