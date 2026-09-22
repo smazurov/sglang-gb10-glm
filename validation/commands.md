@@ -13,7 +13,7 @@ tuple or as a comment on the pin-change PR that produced the candidate.
 Set up once per session:
 
 ```bash
-IMAGE=ghcr.io/the serving org/sglang-gb10-glm:<tag>          # candidate tag
+IMAGE=ghcr.io/smazurov/sglang-gb10-glm:<tag>          # candidate tag
 docker pull "$IMAGE"                                 # head has internet; nodes get it via the fabric registry
 ```
 

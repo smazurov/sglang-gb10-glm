@@ -12,7 +12,7 @@
 profile: glm-flash-v2
 
 image:
-  repository: ghcr.io/the serving org/sglang-gb10-glm
+  repository: ghcr.io/smazurov/sglang-gb10-glm
   tag_prefix: glm-flash-v2
   platform: linux/arm64
   python: /opt/sglang/bin/python3

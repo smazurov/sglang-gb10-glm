@@ -1,7 +1,7 @@
 # sglang-gb10-glm
 
 Patched SGLang images for **GLM-5.3-Flash on DGX Spark** (GB10/SM121, ARM64),
-published to `ghcr.io/the serving org/sglang-gb10-glm`. This repo owns *image
+published to `ghcr.io/smazurov/sglang-gb10-glm`. This repo owns *image
 maintenance* (upstream SGLang moves, carried patches, wheel overrides) so the
 serving cluster does not have to.
 
