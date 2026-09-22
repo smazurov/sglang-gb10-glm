@@ -83,7 +83,8 @@ the accepted tuple; this repo only ever publishes candidates.
 
 ## Adoption
 
-A candidate is adopted only after T1+T2+T3 receipts exist for it. Then the
+A candidate is adopted only after pre-test-drift + T2 + T3 receipts exist for
+it. Then the
 the serving repo's guide's accepted tuple records: image tag + digest, checkpoint
 revision, and the receipts. Updating that tuple is the only way the serving repo
 changes behavior; a GHCR publish alone proves nothing about serving.
