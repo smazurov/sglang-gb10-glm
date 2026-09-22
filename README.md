@@ -44,8 +44,7 @@ validation/       commands.md — cluster-side T1/T2/T3 validation (ad hoc, GPU 
 | tier | where | what | gates |
 |---|---|---|---|
 | T0 | CI, free `ubuntu-24.04-arm` | patch series applies at pin, exact tree hashes, contract tests, tag determinism | merge |
-| build | CI, `ubuntu-24.04-arm` + `jlumbroso/free-disk-space` | image build with in-build gates: dep contract, offline hash-locked wheel install, tree identity, compileall, import identity, dependency before/after audits | — |
-| pre-test (T1) | CI, after build | CPU processor gate vs the vendored checkpoint interface files (`checkpoint/`, MIT) | publish (tags assemble only after it passes) |
+| build | CI, `ubuntu-24.04-arm` + `jlumbroso/free-disk-space` | image built LOCALLY with in-build gates: dep contract, offline hash-locked wheel install, tree identity, compileall, import identity, dependency before/after audits, then the CPU processor gate vs the vendored checkpoint interface files — push happens only after the gate passes | publish |
 | T2 | cluster (ad hoc, GPU) | CUDA-kernel/numerical/IPC gates | acceptance |
 | T3 | the serving repo (ad hoc) | serving acceptance per the the serving repo's guide | accepted tuple |
 

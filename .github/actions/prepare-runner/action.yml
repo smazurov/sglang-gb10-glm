@@ -11,7 +11,9 @@ runs:
         dotnet: true
         haskell: true
         large-packages: true
-        docker-images: false
+        # free the preinstalled docker images too: the build job loads the
+        # full image into the daemon for the CPU gate before pushing
+        docker-images: true
         swap-storage: false
     - name: 'pre-test: total free disk ≥ 50G (fail-closed, records layout receipt)'
       shell: bash

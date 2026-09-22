@@ -2,21 +2,22 @@ name: build
 # Build, validate, and publish the candidate image on public hosted infra
 # (no GPUs, no cluster). Job graph:
 #
-#   tag ──> wheels ──> build ──> pre-test ──> tags ──> receipts
-#     └──────────────────────────────^ (pre-test also runs standalone on force_t1)
+#   tag ──> wheels ──> build(+CPU pre-test) ──> tags ──> receipts
+#     └── pre-test (dispatch-only: revalidate an already-published stable tag)
 #
 # - tag:      content-addressed tag; skip decision when already published
 # - wheels:   cache-or-fetch the pinned wheels (artifact, ~30 MB)
-# - build:    push the image by digest (in-build gates run inside the Dockerfile)
-# - pre-test: CPU processor gate against the published digest, using the
-#             vendored MIT-licensed checkpoint interface files (checkpoint/)
-# - tags:     assemble the dated + stable tags ONLY after pre-test passes; an
-#             unnamed digest stays garbage-collectable
+# - build:    build LOCALLY (unpushed), run the CPU processor gate against the
+#             vendored MIT-licensed checkpoint interface files (checkpoint/),
+#             and push by digest ONLY if the gate passes — GHCR does not
+#             garbage-collect untagged manifests, so nothing unvalidated lands
+# - tags:     assemble the dated + stable tags; an unnamed digest stays
+#             garbage-collectable
 # - receipts: run summary (tag, digest, per-job outcomes)
 #
 # publish ≠ accepted: cluster-side T2 (GPU) and T3 (serving) remain ad hoc —
-# see validation/commands.md. A pre-test failure leaves the workflow red and
-# no tags; the digest exists but is unnamed.
+# see validation/commands.md. A gate failure leaves the workflow red and the
+# registry untouched.
 #
 # force_t1 (workflow_dispatch): re-run the CPU gate against the ALREADY
 # PUBLISHED stable tag (e.g. after a checkpoint-interface bump with an
@@ -112,9 +113,42 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Upstream sglang's push-by-digest pattern: build once, push the digest,
-      # assemble named tags later (no rebuild per tag).
-      - name: Build and push by digest
+      # Upstream sglang's push-by-digest pattern, gated: build locally and
+      # push by digest only after the CPU pre-test passes. The second buildx
+      # invocation is a no-op build — same builder, context, and args, so
+      # every layer cache-hits and only the export differs (load → push).
+      - name: Build locally (unpushed)
+        run: |
+          set -eu
+          docker buildx build \
+            --platform linux/arm64 \
+            --load -t "$IMAGE:candidate" \
+            -f docker/Dockerfile \
+            --build-arg IMAGE_SOURCE="${{ github.server_url }}/${{ github.repository }}" \
+            --build-arg IMAGE_REVISION="${{ github.sha }}" \
+            --build-arg IMAGE_VERSION="${{ needs.tag.outputs.tag }}" \
+            .
+      - name: Normalize checkpoint metadata (pinned hash)
+        run: |
+          set -eu
+          python3 gates/normalize_modelopt.py < checkpoint/config.json > modelopt-flat-config.json
+          got=$(sha256sum modelopt-flat-config.json | cut -d' ' -f1)
+          want=$(python3 -c "import yaml; print(yaml.safe_load(open('profile.yaml'))['checkpoint']['metadata']['normalized_sha256'])")
+          test "$got" = "$want" || { echo "::error::normalized metadata hash drift: $got != $want"; exit 1; }
+      - name: CPU pre-test gate (offline, runc, 4 GiB) — blocks the push
+        run: |
+          set -eu
+          docker run --rm --runtime=runc --network=none \
+            --memory=4g --cpus=4 \
+            --entrypoint /opt/sglang/bin/python3 \
+            -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 \
+            -v "$PWD/checkpoint:$SNAPSHOT:ro" \
+            -v "$PWD/modelopt-flat-config.json:$SNAPSHOT/config.json:ro" \
+            "$IMAGE:candidate" \
+            /opt/glm-gates/gate-processor.py "$SNAPSHOT" \
+            | tee /tmp/pre-test-gate.log
+          grep -q GLM_PROCESSOR_PASS /tmp/pre-test-gate.log
+      - name: Push by digest (gate passed)
         id: build
         run: |
           set -eu
@@ -130,14 +164,18 @@ jobs:
           digest=$(python3 -c "import json; print(json.load(open('/tmp/metadata.json'))['containerimage.digest'])")
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
       - name: Release build cache
-        run: docker buildx prune -f
+        run: |
+          docker rmi "$IMAGE:candidate" || true
+          docker buildx prune -f
 
   pre-test:
-    # CPU processor gate: checkpoint-coupled validation, in CI — the vendored
-    # interface files (checkpoint/, MIT) are the gate's inputs; the gate
-    # verifies them against the baked sha256 contract fail-closed.
+    # Dispatch-only revalidation: run the CPU gate against an ALREADY
+    # PUBLISHED stable tag (e.g. after a checkpoint-interface bump with an
+    # unchanged recipe). Pulls by digest, so it validates exactly what a
+    # consumer would get. On regular pushes the gate already ran in-build
+    # before the push, so this job is skipped.
     needs: [tag, build]
-    if: always() && (needs.build.result == 'success' || inputs.force_t1 == true)
+    if: always() && inputs.force_t1 == true
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -174,9 +212,9 @@ jobs:
           grep -q GLM_PROCESSOR_PASS /tmp/pre-test-gate.log
 
   tags:
-    # Named tags land only after pre-test passes; unnamed digests are collectable.
+    # Named tags land on the gate-passed digest; nothing earlier is named.
     if: needs.tag.outputs.exists != 'true'
-    needs: [tag, build, pre-test]
+    needs: [tag, build]
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: docker/setup-buildx-action@v3
@@ -195,14 +233,13 @@ jobs:
             "$IMAGE@${{ needs.build.outputs.digest }}"
 
   receipts:
-    needs: [tag, build, pre-test, tags]
+    needs: [tag, build, tags]
     if: always()
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Publish receipts
         run: |
           build_out="${{ needs.build.result }}"
-          pre_test_out="${{ needs.pre-test.result }}"
           {
             echo "## build receipt"
             echo ""
@@ -212,7 +249,7 @@ jobs:
             echo "| dated tag | \`${{ needs.tag.outputs.tag }}\` |"
             echo "| build | $build_out |"
             echo "| digest | \`${{ needs.build.outputs.digest }}\` |"
-            echo "| pre-test CPU gate | $pre_test_out |"
+            echo "| CPU pre-test | in-build gate (blocked the push) |"
             echo "| tags | ${{ needs.tags.result }} |"
             echo ""
             echo "T2 (GPU) and T3 (serving) are cluster-side: validation/commands.md."

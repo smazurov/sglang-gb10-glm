@@ -1,10 +1,12 @@
 # Cluster validation — how to test a published candidate
 
-CI (public infra) validates image-internal properties plus the CPU processor
-pre-test against the vendored interface files, and publishes the candidate
-(tags assemble only after pre-test passes). The cluster session is for what
-CI structurally cannot do: the GPU gates, the serving acceptance, and the
-pre-test re-run against the real snapshot as a drift check. The image is
+CI (public infra) validates image-internal properties and the CPU processor
+pre-test (run inside the build job against the local image, before anything
+is pushed), then publishes the candidate. Nothing unvalidated lands in the
+registry; a `workflow_dispatch` with `force_t1` re-runs the gate against an
+already-published stable tag without rebuilding. The cluster session is for
+what CI structurally cannot do: the GPU gates, the serving acceptance, and
+the pre-test re-run against the real snapshot as a drift check. The image is
 self-validating: its gates are baked into `/opt/glm-gates`, so these commands
 need the image and the cluster's HF cache, not this repository.
 
