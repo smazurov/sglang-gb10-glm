@@ -9,7 +9,7 @@
 #
 # Build (context = repo root, after scripts/fetch-wheels.py):
 #   docker buildx build --push \
-#     --build-arg IMAGE_SOURCE=https://github.com/the serving org/sglang-gb10-glm \
+#     --build-arg IMAGE_SOURCE=https://github.com/smazurov/sglang-gb10-glm \
 #     --build-arg IMAGE_REVISION=$(git rev-parse HEAD) \
 #     -f docker/Dockerfile .
 #
