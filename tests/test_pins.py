@@ -17,7 +17,7 @@ DOCKERFILE = (ROOT / "docker" / "Dockerfile").read_text()
 class PinTests(unittest.TestCase):
     def test_immutable_pins(self):
         self.assertEqual(PROFILE["profile"], "glm-flash-v2")
-        self.assertEqual(PROFILE["image"]["repository"], "ghcr.io/the serving org/sglang-gb10-glm")
+        self.assertEqual(PROFILE["image"]["repository"], "ghcr.io/smazurov/sglang-gb10-glm")
         self.assertEqual(
             PROFILE["base"]["image"],
             "lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53",
