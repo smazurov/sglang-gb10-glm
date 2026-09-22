@@ -185,9 +185,10 @@ jobs:
       - name: Resolve the published digest
         id: digest
         run: |
-          set -eu
+          set -eu -o pipefail
           digest=$(docker buildx imagetools inspect "$IMAGE:${{ needs.tag.outputs.stable }}" \
             --format '{{json .Manifest.Digest}}' | tr -d '"')
+          test -n "$digest" || { echo "::error::could not resolve the published digest"; exit 1; }
           echo "digest=$digest" | tee -a "$GITHUB_OUTPUT"
       - name: Normalize checkpoint metadata (pinned hash)
         run: |

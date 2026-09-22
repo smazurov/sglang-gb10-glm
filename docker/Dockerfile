@@ -17,7 +17,10 @@
 # with the image plus the pinned checkpoint snapshot can run validation
 # without this repo (see validation/commands.md).
 
-ARG BASE_IMAGE=lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
+# Base is the GHCR transport mirror of the pinned upstream arm64 manifest
+# (byte-identical; digest asserted equal to upstream by mirror-base.yml).
+# Upstream origin: docker.io/lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
+ARG BASE_IMAGE=ghcr.io/smazurov/sglang-base@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
 ARG SGLANG_HEAD=d6fabb74b45d4fb92796cfb6740810b4811b018e
 ARG SGLANG_UPSTREAM_TREE=ece17616d5a531bd37cfe476de07a30e6ada0ecb
 ARG SGLANG_PATCHED_TREE=4c582984e40ace4a203e369237954df26368bff0

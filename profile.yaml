@@ -22,7 +22,14 @@ base:
   # Immutable ARM64 dev snapshot (nightly-dev-cu13-20260909-db272201 platform
   # manifest). Supplies the compiled environment (torch/tilelang/flashinfer/
   # sgl-kernel); only the Python tree and explicit wheel overrides move.
-  image: lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
+  #
+  # Pulled from the GHCR transport mirror (see .github/workflows/mirror-base.yml):
+  # Docker Hub pulls from hosted runners are the slow, high-variance leg
+  # (observed 1.7-70 MB/s for the same blobs within an hour); the mirror is
+  # re-pushed byte-identically per base-pin change and CI asserts the arm64
+  # manifest digest matches upstream, so this is a transport cache, not a
+  # fork. Upstream origin: docker.io/lmsysorg/sglang@sha256:df8461b8…
+  image: ghcr.io/smazurov/sglang-base@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
 
 sglang:
   repository: https://github.com/sgl-project/sglang.git
