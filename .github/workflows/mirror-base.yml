@@ -1,0 +1,63 @@
+name: mirror-base
+# One-time base mirror; re-run whenever profile.yaml's base pin changes.
+#
+# Pull the pinned arm64 base from Docker Hub and mirror it byte-identically
+# into GHCR. Rationale: Docker Hub pulls from hosted runners are the slow,
+# high-variance leg (observed 1.7-70 MB/s for the same blobs within an hour);
+# GHCR -> runner is same-cloud and fast. Once the base lives in GHCR, the
+# image build pulls from GHCR and the image push can cross-repo-mount the
+# shared base blobs (buildkit's mount path) instead of re-uploading 14 GiB.
+#
+# Provenance is preserved by asserting the mirror's arm64 manifest digest is
+# byte-identical to the upstream manifest (content addressing does the work;
+# the mirror is a transport cache, not a fork).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  UPSTREAM: docker.io/lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
+  MIRROR: ghcr.io/smazurov/sglang-base
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/prepare-runner
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull pinned base (arm64)
+        run: docker pull --platform linux/arm64 "$UPSTREAM"
+      - name: Mirror into GHCR
+        id: push
+        run: |
+          set -eu
+          short=$(echo "$UPSTREAM" | sed 's/.*sha256://; s/^\(........\).*/\1/')
+          docker tag "$UPSTREAM" "$MIRROR:candidate"
+          docker push --quiet "$MIRROR:candidate"
+          docker tag "$UPSTREAM" "$MIRROR:$short"
+          docker push --quiet "$MIRROR:$short"
+          echo "short=$short" >> "$GITHUB_OUTPUT"
+      - name: Assert byte-identical mirror (provenance)
+        run: |
+          set -eu
+          short=${{ steps.push.outputs.short }}
+          expect=$(docker buildx imagetools inspect --platform linux/arm64 "$UPSTREAM" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          got=$(docker buildx imagetools inspect --platform linux/arm64 "$MIRROR:$short" \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          test "$got" = "$expect" || { echo "::error::mirror drift: $got != $expect"; exit 1; }
+          {
+            echo "## base mirror receipt"
+            echo ""
+            echo "mirror ref for the build pin: \`$MIRROR@${got}\`"
+            echo "upstream: \`$UPSTREAM\` (arm64 manifest digest identical — byte-identical transport mirror)"
+          } >> "$GITHUB_STEP_SUMMARY"
