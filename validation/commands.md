@@ -41,9 +41,14 @@ CFG=/srv/hf-cache/runtime-configs/modelopt-flat-config.json
 
 # Generate the normalized ModelOpt metadata from the checkpoint config (the
 # producer is baked into the image — the cluster runs no repo code for this).
+# -S matters: the image's python has a site hook that prints a CUDA banner to
+# stdout, which would corrupt the generated file (the producer is stdlib-only,
+# so skipping site is exact; verified to reproduce the pinned e640b420…).
 mkdir -p "$(dirname "$CFG")"
-docker run --rm -i "$IMAGE" /opt/sglang/bin/python3 /opt/glm-gates/normalize_modelopt.py \
+docker run --rm -i --entrypoint sh "$IMAGE" -c \
+  "/opt/sglang/bin/python3 -S /opt/glm-gates/normalize_modelopt.py" \
   < "$SNAP/config.json" > "$CFG"
+sha256sum "$CFG"    # must equal checkpoint.metadata.normalized_sha256 in profile.yaml
 
 # Offline gate: runc, no network, 4 GiB / 4 CPUs, checkpoint RO, normalized
 # config mounted over the snapshot's config.json.
