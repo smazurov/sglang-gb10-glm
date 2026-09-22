@@ -1,0 +1,151 @@
+diff --git a/python/sglang/srt/mem_cache/buffer_mode/pipeline.py b/python/sglang/srt/mem_cache/buffer_mode/pipeline.py
+index c5f5e05..792c7c8 100644
+--- a/python/sglang/srt/mem_cache/buffer_mode/pipeline.py
++++ b/python/sglang/srt/mem_cache/buffer_mode/pipeline.py
+@@ -248,7 +248,7 @@ class BufferModePipeline:
+         from sglang.srt.mem_cache.swa_memory_pool import SWAKVPool
+ 
+         kvcache = cache.token_to_kv_pool_allocator.get_kvcache()
+-        full_pool = kvcache.full_kv_pool if isinstance(kvcache, SWAKVPool) else kvcache
++        full_pool = getattr(kvcache, "full_kv_pool", kvcache)
+         # Clamp by admission headroom: pins must leave room for the largest
+         # allowed request, else a queued hold can wedge admission permanently
+         # (pool full, nothing retractable). No-headroom pools take no pins.
+@@ -421,6 +421,26 @@ class BufferModePipeline:
+                             hit_policy=PoolHitPolicy.TRAILING_PAGES,
+                         )
+                     )
++        if ComponentType.MAMBA in self._cache.components:
++            current = (
++                comp_xfers.get(ComponentType.MAMBA)
++                if comp_xfers is not None
++                else self._cache.tree_core.build_hicache_transfers(
++                    ComponentType.MAMBA,
++                    node_id,
++                    CacheTransferPhase.BACKUP_HOST,
++                )
++            )
++            for transfer in current or ():
++                if transfer.device_indices is None:
++                    continue
++                transfers.append(
++                    PoolTransfer(
++                        name=transfer.name,
++                        keys=hash_values[-1:],
++                        hit_policy=PoolHitPolicy.TRAILING_PAGES,
++                    )
++                )
+         return transfers
+ 
+     def _backup_oversize(
+diff --git a/python/sglang/srt/mem_cache/hicache_storage.py b/python/sglang/srt/mem_cache/hicache_storage.py
+index b573e69..807dcf9 100644
+--- a/python/sglang/srt/mem_cache/hicache_storage.py
++++ b/python/sglang/srt/mem_cache/hicache_storage.py
+@@ -663,21 +663,49 @@ class HiCacheFile(HiCacheStorage):
+     def _log_key(self, pool_name: str, key: str) -> str:
+         return key if pool_name == PoolName.KV else f"{key}.{pool_name}"
+ 
+-    def _read_page(self, pool_name: str, key: str, host_pool, page_offset: int) -> bool:
++    def _read_page(self, pool_name: str, key: str, host_pool, page_offset) -> bool:
+         """Read one page from storage into host_pool at page_offset."""
+         storage_key = self._log_key(pool_name, key)
+-        data_page = self.get(storage_key, host_pool.get_dummy_flat_data_page())
++        dummy = host_pool.get_dummy_flat_data_page()
++        data_page = self.get(storage_key, dummy)
+         if data_page is None:
+             return False
+-        host_pool.set_from_flat_data_page(page_offset, data_page)
++        if isinstance(page_offset, torch.Tensor) and page_offset.numel() > 1:
++            page_size = getattr(host_pool, "page_size", 1) or 1
++            pages_per_key = max(1, page_offset.numel() // page_size)
++            if pages_per_key == 1:
++                host_pool.set_from_flat_data_page(int(page_offset[0].item()), data_page)
++            else:
++                chunk_size = data_page.numel() // pages_per_key
++                for p in range(pages_per_key):
++                    host_pool.set_from_flat_data_page(
++                        int(page_offset[p * page_size].item()),
++                        data_page[p * chunk_size : (p + 1) * chunk_size],
++                    )
++        else:
++            offset = int(page_offset[0].item()) if isinstance(page_offset, torch.Tensor) else int(page_offset)
++            host_pool.set_from_flat_data_page(offset, data_page)
+         return True
+ 
+     def _write_page(
+-        self, pool_name: str, key: str, host_pool, page_offset: int
++        self, pool_name: str, key: str, host_pool, page_offset
+     ) -> bool:
+         """Write one page from host_pool at page_offset to storage as raw bytes."""
+         storage_key = self._log_key(pool_name, key)
+-        data_page = host_pool.get_data_page(page_offset, flat=True)
++        if isinstance(page_offset, torch.Tensor) and page_offset.numel() > 1:
++            page_size = getattr(host_pool, "page_size", 1) or 1
++            pages_per_key = max(1, page_offset.numel() // page_size)
++            if pages_per_key == 1:
++                data_page = host_pool.get_data_page(int(page_offset[0].item()), flat=True)
++            else:
++                data_pages = [
++                    host_pool.get_data_page(int(page_offset[p * page_size].item()), flat=True)
++                    for p in range(pages_per_key)
++                ]
++                data_page = torch.cat(data_pages)
++        else:
++            offset = int(page_offset[0].item()) if isinstance(page_offset, torch.Tensor) else int(page_offset)
++            data_page = host_pool.get_data_page(offset, flat=True)
+         return self.set(storage_key, data_page)
+ 
+     def _batch_io_v2(self, transfers: List[PoolTransfer], op_fn):
+@@ -686,22 +714,23 @@ class HiCacheFile(HiCacheStorage):
+             host_pool = self.registered_pools[transfer.name]
+             keys = transfer.keys or []
+             page_size = getattr(host_pool, "page_size", 1) or 1
+-            expected = len(keys) * page_size
+             host_indices = transfer.host_indices
++            num_keys = len(keys)
+ 
+-            if host_indices is None or host_indices.numel() != expected:
++            if host_indices is None or (num_keys > 0 and host_indices.numel() % num_keys != 0):
+                 logger.error(
+-                    "%s indices length mismatch for %s: expected %s, got %s",
++                    "%s indices length mismatch for %s: expected multiple of %s keys, got %s indices",
+                     op_fn.__name__,
+                     transfer.name,
+-                    expected,
++                    num_keys,
+                     host_indices.numel() if host_indices is not None else 0,
+                 )
+-                results[transfer.name] = [False] * len(keys)
++                results[transfer.name] = [False] * num_keys
+                 continue
+ 
++            tokens_per_key = host_indices.numel() // num_keys if num_keys > 0 else page_size
+             results[transfer.name] = [
+-                op_fn(transfer.name, key, host_pool, host_indices[i * page_size].item())
++                op_fn(transfer.name, key, host_pool, host_indices[i * tokens_per_key : (i + 1) * tokens_per_key])
+                 for i, key in enumerate(keys)
+             ]
+         return results
+diff --git a/python/sglang/srt/mem_cache/unified_radix_cache.py b/python/sglang/srt/mem_cache/unified_radix_cache.py
+index c0c66ec..f78a282 100644
+--- a/python/sglang/srt/mem_cache/unified_radix_cache.py
++++ b/python/sglang/srt/mem_cache/unified_radix_cache.py
+@@ -449,7 +449,7 @@ class UnifiedRadixCache(BasePrefixCache):
+             # Lifting the fence also needs the admission charge: a staged
+             # state slot is request-pinned at consumption and must ride
+             # req.mamba_host_hit_length the way the SWA window does.
+-            supported = {ComponentType.FULL, ComponentType.SWA}
++            supported = {ComponentType.FULL, ComponentType.SWA, ComponentType.MAMBA}
+             if not set(self.tree_components) <= supported:
+                 raise ValueError(
+                     "--hicache-host-memory-mode buffer_only supports only "
+@@ -466,7 +466,7 @@ class UnifiedRadixCache(BasePrefixCache):
+ 
+         # Parse storage config once, share with assembler and tree
+         storage_backend = get_memory().hicache_storage_backend
+-        if storage_backend is not None and self.page_size != params.page_size:
++        if storage_backend not in (None, "file") and self.page_size != params.page_size:
+             raise ValueError(
+                 "Compressed DSA currently supports L2 HiCache only; "
+                 "storage hashes and transfers require matching page sizes."

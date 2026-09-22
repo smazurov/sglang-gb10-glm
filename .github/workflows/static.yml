@@ -1,0 +1,31 @@
+name: static
+# T0-static: no image required, runs on the free hosted arm64 runner.
+# Verifies the patch series applies at the pinned commit with exact tree
+# hashes, all contract tests, and tag determinism.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install test dependencies
+        run: python3 -m pip install --user pyyaml packaging
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -t . -p 'test_*.py'
+
+      - name: Verify pinned tree (apply series, exact tree hashes)
+        run: python3 scripts/verify-tree.py
+
+      - name: Tag determinism
+        run: |
+          set -eux
+          a=$(python3 scripts/tag.py --sha8)
+          b=$(python3 scripts/tag.py --sha8)
+          test "$a" = "$b"
+          echo "sha8=$a" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,11 @@
+.git
+.github
+tests
+validation
+scripts
+docs
+*.md
+LICENSE
+.dockerignore
+.gitignore
+checkpoint

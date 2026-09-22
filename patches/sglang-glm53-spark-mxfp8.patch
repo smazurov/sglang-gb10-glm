@@ -1,0 +1,246 @@
+diff --git a/python/sglang/srt/layers/quantization/fp8.py b/python/sglang/srt/layers/quantization/fp8.py
+index 776229b8c..8bdbb762d 100644
+--- a/python/sglang/srt/layers/quantization/fp8.py
++++ b/python/sglang/srt/layers/quantization/fp8.py
+@@ -804,6 +804,28 @@ class Fp8LinearMethod(LinearMethodBase):
+             return
+ 
+         backend = self.mxfp8_dense_backend
++        if backend.is_flashinfer_cutlass() or backend.is_flashinfer_cutedsl():
++            # CUTLASS MXFP8 requires N>=128. GLM b_proj has only 32 rows
++            # per TP2 rank. Pad weights/scales after loading and trim output;
++            # do not expand the checkpoint or dequantize the weight matrix.
++            weight = layer.weight.data
++            if weight.shape[0] < 128:
++                original_n, k = weight.shape
++                layer._mxfp8_unpadded_output_size = original_n
++                padded_weight = torch.zeros(
++                    (128, k), device=weight.device, dtype=weight.dtype
++                )
++                padded_weight[:original_n].copy_(weight)
++                scales = layer.weight_scale_inv.data
++                padded_scales = torch.zeros(
++                    (128, scales.shape[1]),
++                    device=scales.device,
++                    dtype=scales.dtype,
++                )
++                padded_scales[:original_n].copy_(scales)
++                copy_or_rebind_param(layer, "weight", padded_weight)
++                copy_or_rebind_param(layer, "weight_scale_inv", padded_scales)
++
+         if backend.is_flashinfer_trtllm():
+             from flashinfer import shuffle_matrix_a, shuffle_matrix_sf_a
+ 
+@@ -1068,23 +1090,20 @@ class Fp8LinearMethod(LinearMethodBase):
+                 extra_kwargs["weight_scale_swizzled"] = layer.weight_scale_inv_swizzled
+             else:
+                 weight_scale = layer.weight_scale_inv
+-            if isinstance(x, tuple):
+-                return self.w8a8_mxfp8_linear(
+-                    input=x[0],
+-                    weight=layer.weight,
+-                    weight_scale=weight_scale,
+-                    input_scale=x[1],
+-                    bias=bias,
+-                    **extra_kwargs,
+-                )
+-            return self.w8a8_mxfp8_linear(
+-                input=x,
++            unpadded_n = getattr(layer, "_mxfp8_unpadded_output_size", None)
++            output = self.w8a8_mxfp8_linear(
++                input=x[0] if isinstance(x, tuple) else x,
+                 weight=layer.weight,
+                 weight_scale=weight_scale,
+-                input_scale=None,
+-                bias=bias,
++                input_scale=x[1] if isinstance(x, tuple) else None,
++                bias=None if unpadded_n is not None else bias,
+                 **extra_kwargs,
+             )
++            if unpadded_n is not None:
++                output = output[..., :unpadded_n].contiguous()
++                if bias is not None:
++                    output = output + bias
++            return output
+ 
+         if self.block_quant:
+             if use_intel_amx_backend(layer):
+diff --git a/python/sglang/srt/models/deepseek_common/deepseek_weight_loader.py b/python/sglang/srt/models/deepseek_common/deepseek_weight_loader.py
+index c526df775..cddeb2235 100644
+--- a/python/sglang/srt/models/deepseek_common/deepseek_weight_loader.py
++++ b/python/sglang/srt/models/deepseek_common/deepseek_weight_loader.py
+@@ -604,6 +604,30 @@ class DeepseekV2WeightLoaderMixin:
+             # Fix deepseek v3 blockwise bmm by using deep_gemm
+             use_deep_gemm_bmm = False
+ 
++            if getattr(
++                getattr(self_attn.kv_b_proj, "quant_method", None), "use_mxfp8", False
++            ):
++                # Mixed MXFP8 is not per-tensor ModelOpt FP8: its U8 scales
++                # are UE8M0 exponents, one per 32 input weights. Decode only
++                # this small MLA absorption matrix, leaving the serialized
++                # projection and its quant method intact for ordinary GEMMs.
++                scales = self_attn.kv_b_proj.weight_scale_inv
++                rows, k = w.shape
++                if (
++                    scales.dtype != torch.uint8
++                    or tuple(scales.shape) != (rows, k // 32)
++                    or k % 32
++                ):
++                    raise ValueError(
++                        "MXFP8 MLA absorption requires raw UE8M0 [N,K/32] scales"
++                    )
++                multipliers = torch.exp2(scales.float() - 127)
++                w = (
++                    w.float().reshape(rows, k // 32, 32)
++                    * multipliers.unsqueeze(-1)
++                ).reshape(rows, k).to(torch.bfloat16)
++                self_attn.w_scale = None
++
+             if w.dtype in (
+                 torch.float8_e4m3fn,
+                 torch.float8_e4m3fnuz,
+diff --git a/python/sglang/srt/models/glm5_next.py b/python/sglang/srt/models/glm5_next.py
+index 457c51f26..bc1ee834b 100644
+--- a/python/sglang/srt/models/glm5_next.py
++++ b/python/sglang/srt/models/glm5_next.py
+@@ -1263,6 +1263,7 @@ class Glm5NextForConditionalGeneration(nn.Module):
+         prefix: str = "",
+     ) -> None:
+         super().__init__()
++        self._validate_mixed_expert_routes(config, quant_config, prefix)
+         vision_utils.update_vit_attn_dummy_heads_config(config)
+         self.mm_config = config
+         text_config = config.text_config
+@@ -1535,6 +1536,23 @@ class Glm5NextForConditionalGeneration(nn.Module):
+                 exc_info=True,
+             )
+ 
++    @staticmethod
++    def _validate_mixed_expert_routes(config, quant_config, prefix):
++        # Fail BEFORE constructing expert tensors. An unresolved ModelOpt route
++        # silently falls back to BF16: 283.5 GiB/rank for this model at TP=2.
++        if quant_config is None or quant_config.get_name() != "modelopt_mixed":
++            return
++        text = getattr(config, "text_config", config)
++        root = f"{prefix}.model" if prefix else "model"
++        for layer_id in range(text.first_k_dense_replace, text.num_hidden_layers):
++            name = f"{root}.layers.{layer_id}.mlp.experts"
++            algo = quant_config._resolve_quant_algo(name)
++            if algo not in {"NVFP4", "W4A16_NVFP4"}:
++                raise RuntimeError(
++                    f"Refusing unquantized mixed-checkpoint experts: {name} -> {algo!r}. "
++                    "Normalize the checkpoint quantization map before loading."
++                )
++
+     def get_input_embeddings(self) -> nn.Embedding:
+         if self.model is None:
+             raise AttributeError(
+@@ -1806,6 +1824,15 @@ class Glm5NextForConditionalGeneration(nn.Module):
+             fused_cat_dim = 0
+ 
+         params_dict = dict(self.named_parameters())
++        expected_mxfp8_scales = {
++            name
++            for name in params_dict
++            if qc is not None
++            and qc.get_name() == "modelopt_mixed"
++            and name.endswith(".weight_scale_inv")
++            and qc._resolve_quant_algo(name.rsplit(".", 1)[0]) == "MXFP8"
++        }
++        loaded_mxfp8_scales = set()
+         weight_names = []
+         for name, loaded_weight in weights:
+             is_visual_weight = "visual" in name
+@@ -1859,6 +1886,11 @@ class Glm5NextForConditionalGeneration(nn.Module):
+                 if is_decoder:
+                     name = name.replace(nextn_layer_prefix, "model.decoder")
+ 
++            # ModelOpt stores MXFP8 block scales as weight_scale; SGLang's
++            # native MXFP8 method registers weight_scale_inv. Without this
++            # alias they are silently skipped by the missing-parameter checks.
++            name = _normalize_modelopt_mxfp8_scale_name(name, qc)
++
+             if "rotary_emb.inv_freq" in name:
+                 continue
+             if "hc_head" in name:
+@@ -1889,6 +1921,8 @@ class Glm5NextForConditionalGeneration(nn.Module):
+                 param = params_dict[name]
+                 weight_loader = param.weight_loader
+                 weight_loader(param, loaded_weight, shard_id)
++                if name in expected_mxfp8_scales:
++                    loaded_mxfp8_scales.add(name)
+                 break
+             else:
+                 is_expert_weight = False
+@@ -1955,6 +1989,8 @@ class Glm5NextForConditionalGeneration(nn.Module):
+                                     param, "weight_loader", default_weight_loader
+                                 )
+                                 weight_loader(param, fused_weight)
++                                if target in expected_mxfp8_scales:
++                                    loaded_mxfp8_scales.add(target)
+                             cached_a_proj.pop(q_a_proj_name, None)
+                             cached_a_proj.pop(kv_a_proj_name, None)
+                         continue
+@@ -1970,6 +2006,20 @@ class Glm5NextForConditionalGeneration(nn.Module):
+                         param, "weight_loader", default_weight_loader
+                     )
+                     weight_loader(param, loaded_weight)
++                    if name in expected_mxfp8_scales:
++                        loaded_mxfp8_scales.add(name)
++
++        missing_scales = expected_mxfp8_scales - loaded_mxfp8_scales
++        if missing_scales:
++            raise RuntimeError(
++                f"Unloaded required MXFP8 scales: {sorted(missing_scales)[:12]}"
++            )
++        if expected_mxfp8_scales:
++            log_info_on_rank0(
++                logger,
++                f"MXFP8 scale coverage: {len(loaded_mxfp8_scales)}/"
++                f"{len(expected_mxfp8_scales)}",
++            )
+ 
+         if getattr(self, "encoder_only", False):
+             run_post = False
+@@ -2031,4 +2081,15 @@ class Glm5NextForConditionalGeneration(nn.Module):
+         )
+ 
+ 
++def _normalize_modelopt_mxfp8_scale_name(name, quant_config):
++    if (
++        quant_config is not None
++        and quant_config.get_name() == "modelopt_mixed"
++        and name.endswith(".weight_scale")
++        and quant_config._resolve_quant_algo(name.rsplit(".", 1)[0]) == "MXFP8"
++    ):
++        return name + "_inv"
++    return name
++
++
+ EntryClass = [Glm5NextForConditionalGeneration]
+diff --git a/python/sglang/srt/models/glm5_next_nextn.py b/python/sglang/srt/models/glm5_next_nextn.py
+index 7ea321be2..cd708fce4 100644
+--- a/python/sglang/srt/models/glm5_next_nextn.py
++++ b/python/sglang/srt/models/glm5_next_nextn.py
+@@ -58,6 +58,20 @@ class Glm5NextForConditionalGenerationNextN(DeepseekV3ForCausalLMNextN):
+         return super()._resolve_nextn_quant_config(config, quant_config)
+ 
+     def __init__(self, config, quant_config=None, prefix: str = "") -> None:
++        if quant_config is not None and quant_config.get_name() == "modelopt_mixed":
++            # Reject a missing NextN map before allocating even one BF16 MoE.
++            required = {
++                "model.decoder.mlp.experts": "W4A16_NVFP4",
++                "model.decoder.self_attn.fused_qkv_a_proj_with_mqa": "MXFP8",
++                "model.decoder.mlp.shared_experts.gate_up_proj": "MXFP8",
++            }
++            for name, expected in required.items():
++                actual = quant_config._resolve_quant_algo(name)
++                if actual != expected:
++                    raise RuntimeError(
++                        f"Invalid mixed NextN route {name}: {actual!r}, "
++                        f"expected {expected}"
++                    )
+         super().__init__(
+             getattr(config, "text_config", config),
+             quant_config=quant_config,

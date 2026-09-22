@@ -1,0 +1,162 @@
+diff --git a/python/sglang/srt/managers/scheduler.py b/python/sglang/srt/managers/scheduler.py
+index c3c23f120..c43f2d79d 100644
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -3731,17 +3731,17 @@ class Scheduler(
+             if self.enable_hicache_storage:
+                 self._retry_missed_storage_prefetches()
+ 
+-        if (
+-            self.enable_priority_preemption
+-            or self.is_hybrid_swa
+-            or (self.is_hybrid_ssm and self.tree_cache.supports_mamba())
+-        ):
+-            # batch_is_full is otherwise cleared only when the running batch
+-            # shrinks. Preemption, SWA eviction and mamba-aware radix
+-            # eviction (cached recurrent states of finished requests become
+-            # evictable while the batch is unchanged) can all admit a request
+-            # before that, so re-run admission every round.
+-            running_batch.batch_is_full = False
++        # Unconditional per-round reset (re-based #35609 on top of the
++        # integration's gated form): a stale batch_is_full latch starved the
++        # waiting queue when the last chunked-prefill continuation freed the
++        # final allocatable slot without shrinking the running batch
++        # (#35537). Preemption, SWA eviction and mamba-aware radix eviction
++        # can all admit a request before any shrink, and so can that chunked
++        # completion, so re-run admission every round. This is safe: the
++        # allocatable-request gate below re-latches when the pool is
++        # genuinely full, the PrefillAdder budget gates bound every attempt,
++        # and the chunked-req and mamba-slot capacity checks still apply.
++        running_batch.batch_is_full = False
+ 
+         if (
+             running_batch.batch_is_full or len(self.waiting_queue) == 0
+diff --git a/test/registered/unit/managers/test_scheduler_chunked_req_gate.py b/test/registered/unit/managers/test_scheduler_chunked_req_gate.py
+index d13655d90..10429f677 100644
+--- a/test/registered/unit/managers/test_scheduler_chunked_req_gate.py
++++ b/test/registered/unit/managers/test_scheduler_chunked_req_gate.py
+@@ -3,7 +3,7 @@
+ import unittest
+ from array import array
+ from types import SimpleNamespace
+-from unittest.mock import MagicMock
++from unittest.mock import MagicMock, patch
+ 
+ import torch
+ 
+@@ -179,5 +179,46 @@ class TestStashGatePreservesPrefixIndices(CustomTestCase):
+         self.assertIsNone(s.chunked_req)
+ 
+ 
++class TestChunkedPrefillBatchFullReset(CustomTestCase):
++    """#35609: a stale batch_is_full set during a chunked pass must not
++    starve the waiting queue after the last chunk completes. The fixture
++    initializes every attribute the pinned pre-admission path reads,
++    including enable_unified_cache_external_linker."""
++
++    def test_stale_batch_full_reconsiders_waiting_request(self):
++        scheduler = Scheduler.__new__(Scheduler)
++        scheduler.grammar_manager = MagicMock()
++        scheduler.grammar_manager.has_waiting_grammars.return_value = False
++        scheduler.enable_hierarchical_cache = False
++        scheduler.enable_hicache_storage = False
++        scheduler.enable_unified_cache_external_linker = False
++        scheduler.enable_priority_preemption = False
++        scheduler.is_hybrid_swa = False
++        scheduler.is_hybrid_ssm = False
++        scheduler.waiting_queue = [MagicMock()]
++        scheduler.chunked_req = None
++        scheduler.min_free_slots_delayer = None
++        scheduler.get_num_allocatable_reqs = MagicMock(return_value=1)
++        scheduler.processed_tokens_counter = 0
++        scheduler.policy = MagicMock()
++        scheduler.policy.calc_priority.side_effect = RuntimeError(
++            "admission attempted"
++        )
++
++        running_batch = MagicMock()
++        running_batch.batch_is_full = True
++        running_batch.reqs = [MagicMock(), MagicMock(), MagicMock()]
++
++        with patch(
++            "sglang.srt.managers.scheduler.get_memory",
++            return_value=SimpleNamespace(enable_flexkv=False),
++        ), self.assertRaisesRegex(RuntimeError, "admission attempted"):
++            Scheduler._get_new_batch_prefill_raw(
++                scheduler,
++                prefill_delayer_single_pass=None,
++                running_batch=running_batch,
++            )
++
++
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/test/registered/unit/managers/test_scheduler_hybrid_ssm_admission_latch.py b/test/registered/unit/managers/test_scheduler_hybrid_ssm_admission_latch.py
+index bb3f1637e..0d750024a 100644
+--- a/test/registered/unit/managers/test_scheduler_hybrid_ssm_admission_latch.py
++++ b/test/registered/unit/managers/test_scheduler_hybrid_ssm_admission_latch.py
+@@ -1,7 +1,10 @@
+-"""Gating of the per-round batch_is_full reset in _get_new_batch_prefill_raw:
+-cleared for hybrid SWA and for a hybrid SSM model with a mamba-aware cache,
+-kept for a hybrid SSM model whose cache lacks mamba support and for a model
+-that is neither hybrid SSM nor hybrid SWA (no preemption in any case)."""
++"""Gating of the per-round batch_is_full reset in _get_new_batch_prefill_raw.
++
++The reset is unconditional (re-based #35609): a finished chunked-prefill
++continuation can free the final allocatable slot without shrinking the
++running batch, so every configuration re-runs admission each round. The
++allocatable-request gate re-latches when the pool is genuinely full, so this
++test suite verifies the latch is cleared in all four configurations."""
+ 
+ import unittest
+ from types import SimpleNamespace
+@@ -51,8 +54,8 @@ class TestHybridSsmAdmissionLatch(CustomTestCase):
+     def test_hybrid_ssm_with_mamba_radix_cache_resets_latch(self):
+         self.assertFalse(self._latch_after_round(_scheduler(is_hybrid_ssm=True)))
+ 
+-    def test_hybrid_ssm_without_mamba_cache_keeps_latch(self):
+-        self.assertTrue(
++    def test_hybrid_ssm_without_mamba_cache_resets_latch(self):
++        self.assertFalse(
+             self._latch_after_round(
+                 _scheduler(is_hybrid_ssm=True, supports_mamba=False)
+             )
+@@ -63,8 +66,8 @@ class TestHybridSsmAdmissionLatch(CustomTestCase):
+             self._latch_after_round(_scheduler(is_hybrid_ssm=False, is_hybrid_swa=True))
+         )
+ 
+-    def test_non_hybrid_model_keeps_latch(self):
+-        self.assertTrue(self._latch_after_round(_scheduler(is_hybrid_ssm=False)))
++    def test_non_hybrid_model_resets_latch(self):
++        self.assertFalse(self._latch_after_round(_scheduler(is_hybrid_ssm=False)))
+ 
+ 
+ if __name__ == "__main__":
+diff --git a/test/registered/unit/managers/test_scheduler_hybrid_ssm_admission_retry.py b/test/registered/unit/managers/test_scheduler_hybrid_ssm_admission_retry.py
+index 9e91e4d5a..470971e82 100644
+--- a/test/registered/unit/managers/test_scheduler_hybrid_ssm_admission_retry.py
++++ b/test/registered/unit/managers/test_scheduler_hybrid_ssm_admission_retry.py
+@@ -1,7 +1,7 @@
+-"""With a PrefillAdder stand-in that refuses every request with NO_TOKEN, a
+-hybrid SSM model with a mamba-aware cache re-offers the waiting request each
+-round; a model that is neither hybrid SSM nor hybrid SWA offers it once and
+-keeps batch_is_full set."""
++"""With a PrefillAdder stand-in that refuses every request with NO_TOKEN, the
++waiting request is re-offered every round in every configuration: the
++unconditional batch_is_full reset (re-based #35609) re-runs admission after
++each refusal, while the latch itself keeps reflecting the latest refusal."""
+ 
+ import unittest
+ from types import SimpleNamespace
+@@ -126,9 +126,9 @@ class TestHybridSsmAdmissionRetry(CustomTestCase):
+         calls, _ = self._rounds(_scheduler(is_hybrid_ssm=True), 3)
+         self.assertEqual(calls, 3)
+ 
+-    def test_non_hybrid_model_latches_after_one_refusal(self):
++    def test_non_hybrid_model_retries_admission_every_round(self):
+         calls, latched = self._rounds(_scheduler(is_hybrid_ssm=False), 3)
+-        self.assertEqual(calls, 1)
++        self.assertEqual(calls, 3)
+         self.assertTrue(latched)
+ 
+ 

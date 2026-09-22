@@ -1,0 +1,123 @@
+# Single source of truth for the sglang-gb10-glm image recipe.
+#
+# Every value here is an explicit pin. Changing any pin is a deliberate,
+# reviewed change that produces a new content-addressed image tag
+# (<tag_prefix>-<date>-<sha8>; sha8 from scripts/tag.py). Nothing here
+# follows a moving tag: base, source and checkpoint are immutable references.
+#
+# The docker/Dockerfile ARG defaults must mirror base/sglang/checkpoint pins
+# exactly; tests/test_pins.py asserts the two never drift. CI passes only
+# image-source metadata (IMAGE_SOURCE/IMAGE_REVISION/IMAGE_VERSION), never pins.
+
+profile: glm-flash-v2
+
+image:
+  repository: ghcr.io/the serving org/sglang-gb10-glm
+  tag_prefix: glm-flash-v2
+  platform: linux/arm64
+  python: /opt/sglang/bin/python3
+  source_dir: /sgl-workspace/sglang
+
+base:
+  # Immutable ARM64 dev snapshot (nightly-dev-cu13-20260909-db272201 platform
+  # manifest). Supplies the compiled environment (torch/tilelang/flashinfer/
+  # sgl-kernel); only the Python tree and explicit wheel overrides move.
+  image: lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
+
+sglang:
+  repository: https://github.com/sgl-project/sglang.git
+  head: d6fabb74b45d4fb92796cfb6740810b4811b018e
+  # Byte-for-byte identity of the pinned upstream commit's tree...
+  upstream_tree: ece17616d5a531bd37cfe476de07a30e6ada0ecb
+  # ...and of the tree after the full patch series below (git write-tree).
+  # These two hashes replace any string/tree grep gates: a build that ships a
+  # source tree other than exactly this is impossible.
+  patched_tree: 4c582984e40ace4a203e369237954df26368bff0
+
+patches:
+  # Applied in order inside the build; each file's sha256 is verified
+  # fail-closed, each hunk applies with `git apply --index`, and the resulting
+  # index tree must equal sglang.patched_tree. `markers` are rebase
+  # diagnostics only — they never gate anything.
+  - file: sglang-glm53-integration.patch
+    sha256: b06300b8f2334383cf83f372d4e2a6d0e5baa5dc6cd4dc3ad02d9d3033639669
+    provenance: >-
+      rebased local subset of ormandj/sglang-glm53-flash-sm120 v0.4.2
+      (44c026cae3ce7002c0d897e9f280fbc1aa5bfa0a; vendor base
+      afe90a8bc908002219993794404c7c95dd3ced1d). GB10 TileLang retuning, raw
+      FP8 KV/zero-tail handling, KDA tracking, admission, graph/storage
+      ownership, multimodal safeguards.
+    markers: [_cuda_sm_count, "d_tail > 0", preserve_modelopt_fp4_nextn]
+  - file: sglang-glm53-spark-mxfp8.patch
+    sha256: 6236e97da9fe4502293f31124bcbc00d675941f802136f15ceeab11195a4271c
+    provenance: >-
+      Spark-checkpoint delta (ours alone): MXFP8 scale naming, narrow-N
+      padding/trimming, MLA absorption, mixed expert routes. Not
+      interchangeable with the vendor checkpoint's shared-expert format.
+    markers: [_mxfp8_unpadded_output_size, _validate_mixed_expert_routes]
+  - file: sglang-35609-batch-is-full.patch
+    sha256: 73b664721f8e76de5fb9017c3e3fdd36acb4c30bb1b47e0b2ce4cfbe59290ec2
+    provenance: >-
+      PR #35609 rebase: unconditional per-round admission latch reset, with
+      updated priority-counter test fixture.
+    markers: [Unconditional per-round reset]
+  - file: sglang-33391-mm-pickle-storage.patch
+    sha256: b82f357560d7f786d0b52a188695c8261b602902b38d2770ecba204fc4c402ab
+    provenance: >-
+      PR #33391, faithful upstream tensor-view cloning/memo semantics and CPU
+      tests, plus the narrow native-request send shim. No receive-buffer copy
+      patch, no processor compaction extensions.
+    markers: ["def _materialize_cpu_tensor_views(value, memo):", "value = value.clone()",
+              _materialize_mm_inputs_for_pickle]
+  - file: sglang-glm53-ssd-hicache.patch
+    sha256: 941b0b7edfbccb05f02fc19d6fd6852ab839ca2289e1f69e08b29c28b97d05ce
+    provenance: >-
+      HiCache buffer_only support for Mamba hybrid architectures; unwrap
+      HybridLinearKVPool in BufferModePipeline; multi-page (4:1) key adapter
+      in HiCacheFile for compressed DSA models.
+    markers: ["supported = {ComponentType.FULL, ComponentType.SWA, ComponentType.MAMBA}",
+              "getattr(kvcache, \"full_kv_pool\", kvcache)"]
+
+expected_deps:
+  # Immutable compiled base contract; verified against the base image before
+  # anything else, never replaced by the wheel overlay. A mismatch stops the
+  # build — fix the base or record a justified exception here.
+  torch: 2.13.0+cu130
+  tilelang: 0.1.12
+  flashinfer-python: 0.6.18
+  flashinfer-cubin: 0.6.18
+  flashinfer-jit-cache: 0.6.18+cu130
+  sglang-kernel: 0.4.6.post1
+  cuda-tile: 1.6.0rc5
+  nvidia-cutlass-dsl: 4.6.2
+
+dependency_overlay:
+  # Official prebuilt wheels only; installed offline with --require-hashes
+  # after the immutable-baseline audit. Contracts live in contracts/ and are
+  # asserted by tests/test_contracts.py. The exact inherited-conflict baseline
+  # (13 approved exceptions) is part of the contract — never regenerate it
+  # blindly to bless whatever a new base ships.
+  python: /opt/sglang/bin/python3
+  manifest: dependencies.json
+  lock: requirements.lock
+  baseline: dependency-baseline.json
+
+checkpoint:
+  # By reference only — this repo carries no checkpoint data, neither weights
+  # nor small files. All checkpoint-coupled validation (T1 CPU processor gate,
+  # T2 GPU gate, T3 serving acceptance) runs on the cluster against the pinned
+  # snapshot; see validation/commands.md.
+  repository: local-inference-lab/GLM-5.3-Flash-NVFP4-Spark
+  revision: 53e77dbb04fa9dd68725daa899ec92eabf8a872c
+  # sha256 contract over the checkpoint's small files (config/tokenizer/
+  # processor). The in-image T1 gate verifies it fail-closed against the
+  # cluster's snapshot before anything else runs.
+  file_contract: contracts/processor-metadata.json
+  metadata:
+    # Normalized ModelOpt metadata producer, baked into the image; the cluster
+    # generates the runtime config from the checkpoint's config.json with:
+    #   docker run -i <image> /opt/sglang/bin/python3 /opt/glm-gates/normalize_modelopt.py < config.json
+    producer: gates/normalize_modelopt.py
+    # Pin the normalized output hash after the first accepted T1 receipt;
+    # CI/cluster re-derivation must then reproduce it exactly.
+    normalized_sha256: null

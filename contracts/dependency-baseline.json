@@ -1,0 +1,289 @@
+{
+  "base": "lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53",
+  "environment": {
+    "platform_machine": "aarch64",
+    "sys_platform": "linux",
+    "platform_system": "Linux",
+    "python_version": "3.12",
+    "python_full_version": "3.12.3",
+    "implementation_name": "cpython",
+    "platform_python_implementation": "CPython"
+  },
+  "conflicts": [
+    {
+      "distribution": "cosmos-guardrail",
+      "version": "0.3.1",
+      "requirement": "imageio>=2.37.0",
+      "installed": "2.36.0",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "cosmos-guardrail",
+      "version": "0.3.1",
+      "requirement": "opencv-python>=4.10.0.84",
+      "installed": null,
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "grpcio-health-checking",
+      "version": "1.81.1",
+      "requirement": "protobuf<7.0.0,>=6.33.5",
+      "installed": "7.36.1",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "grpcio-reflection",
+      "version": "1.81.1",
+      "requirement": "protobuf<7.0.0,>=6.33.5",
+      "installed": "7.36.1",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "inflect",
+      "version": "7.5.0",
+      "requirement": "typeguard>=4.0.1",
+      "installed": "2.13.3",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "moviepy",
+      "version": "2.2.1",
+      "requirement": "pillow<12.0,>=9.2.0",
+      "installed": "12.3.0",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "nixl",
+      "version": "1.4.1",
+      "requirement": "nixl-cu12==1.4.1",
+      "installed": null,
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "nvidia-cutlass-dsl-libs-base",
+      "version": "4.6.2",
+      "requirement": "protobuf<7,>=6.30.2",
+      "installed": "7.36.1",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "nvidia-cutlass-dsl-libs-core",
+      "version": "4.6.2",
+      "requirement": "protobuf<7,>=6.30.2",
+      "installed": "7.36.1",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "nvidia-cutlass-dsl-libs-cu12",
+      "version": "4.6.2",
+      "requirement": "protobuf<7,>=6.30.2",
+      "installed": "7.36.1",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "nvidia-cutlass-dsl-libs-cu13",
+      "version": "4.6.2",
+      "requirement": "protobuf<7,>=6.30.2",
+      "installed": "7.36.1",
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "retinaface-py",
+      "version": "0.0.2",
+      "requirement": "opencv-python",
+      "installed": null,
+      "active_extras": [
+        ""
+      ]
+    },
+    {
+      "distribution": "torch",
+      "version": "2.13.0+cu130",
+      "requirement": "nvidia-nccl-cu13==2.29.7; platform_system == \"Linux\"",
+      "installed": "2.30.7",
+      "active_extras": [
+        ""
+      ]
+    }
+  ],
+  "protected_records": {
+    "cuda-tile": {
+      "record_sha256": "b91381e5fc1dc74d7c9e48149f52cd9506ff4b6f1c5143b97b7cd28571eb6064",
+      "version": "1.6.0rc5"
+    },
+    "flashinfer-cubin": {
+      "record_sha256": "db83ebc518479143ceb0f1f7b1575551a13a953227d640264d154f5ed333c138",
+      "version": "0.6.18"
+    },
+    "flashinfer-jit-cache": {
+      "record_sha256": "3cfeeb576f3a1d5f6d924ac441ca26d4a903a7dac2538ea41f9c896a9a53f630",
+      "version": "0.6.18+cu130"
+    },
+    "flashinfer-python": {
+      "record_sha256": "7e6e524b6c5eaed731162bf49e35fc8a350cc2e9a8212299d93d5863978c0dde",
+      "version": "0.6.18"
+    },
+    "nvidia-cublas": {
+      "record_sha256": "34b2e58629951137ffa7ad0f1ba00cfbcf1518c5f2da34e0e6a616c95dfc2b13",
+      "version": "13.1.1.3"
+    },
+    "nvidia-cuda-cccl": {
+      "record_sha256": "c31cabb720a3ff38f17c77104a0b3764bff6927045be28e61e4f926733ff4480",
+      "version": "13.3.3.4.1"
+    },
+    "nvidia-cuda-crt": {
+      "record_sha256": "5303b5ed96ddafa5274f87385265ac5086eb15ab039be0cd52f8f01136113787",
+      "version": "13.3.73"
+    },
+    "nvidia-cuda-cupti": {
+      "record_sha256": "282d34ef9b4b9ea177d598400dcaa6376032f2f367f25f6598faf93306299cbc",
+      "version": "13.0.85"
+    },
+    "nvidia-cuda-nvcc": {
+      "record_sha256": "800828275cc93b7fbae1c61982f3c20031d09f6db71db84144eaacf50a2c4b52",
+      "version": "13.3.73"
+    },
+    "nvidia-cuda-nvdisasm": {
+      "record_sha256": "28f7c80dff52101baba75ac4f977e65eae13ea788fbbd2e0a833001e58c829c6",
+      "version": "13.3.73"
+    },
+    "nvidia-cuda-nvrtc": {
+      "record_sha256": "d843fd158da5b7836c80922c663d1f3f18391d68cbe7874a889273dfffc84d23",
+      "version": "13.0.88"
+    },
+    "nvidia-cuda-runtime": {
+      "record_sha256": "f28dce8f3b0a2d0fb84c9a31f66c8702caf5c191353f35ffc5538ef848df55ea",
+      "version": "13.0.96"
+    },
+    "nvidia-cudnn-cu13": {
+      "record_sha256": "042c267361032e4c0982ae3dbdf4c7c1113a64463de55393878959b7b5828efc",
+      "version": "9.20.0.48"
+    },
+    "nvidia-cudnn-frontend": {
+      "record_sha256": "98c683312f5e8bf8573aa4591708c409e672c26ab49033eedf45cbfe2a24ccfc",
+      "version": "1.28.0"
+    },
+    "nvidia-cufft": {
+      "record_sha256": "fddee2e2f4c8a79e671a6482c1f7ff0b0c55bd502effbaf6dcd916a9cf6568b5",
+      "version": "12.0.0.61"
+    },
+    "nvidia-cufile": {
+      "record_sha256": "79014ef43fdba731b9824f1725b472af02c8004ab1507b9f6c01cb93db1b2ab7",
+      "version": "1.15.1.6"
+    },
+    "nvidia-curand": {
+      "record_sha256": "4151bd8ddc9b41257884126caecf4adcdf9c345350a0c9e3588438003b006fcf",
+      "version": "10.4.0.35"
+    },
+    "nvidia-cusolver": {
+      "record_sha256": "38ba4034f449587362c405f2e489b059c7c9e8427683eac00f1c504182261ad4",
+      "version": "12.0.4.66"
+    },
+    "nvidia-cusparse": {
+      "record_sha256": "bab25cd776e706f67910746df8d6472e086fbc61ec042b51077eebd3756e71ea",
+      "version": "12.6.3.3"
+    },
+    "nvidia-cusparselt-cu13": {
+      "record_sha256": "56a44fc72ac9420fa3e1129a31e6557ab0949c80fd145fd41c5f3ab89bfcc2b9",
+      "version": "0.8.1"
+    },
+    "nvidia-cutlass-dsl": {
+      "record_sha256": "9651bc9a4fbf5af20965dd4ef9e2b91fe735adb5ce3046c993eaa949fc41b9bd",
+      "version": "4.6.2"
+    },
+    "nvidia-cutlass-dsl-libs-base": {
+      "record_sha256": "36c26f0407c6f800038d8c84f31080284212fe0d48d2b9d69ff8e7143abbe995",
+      "version": "4.6.2"
+    },
+    "nvidia-cutlass-dsl-libs-core": {
+      "record_sha256": "5ebc4fd25e1ff66cc90e82fdd30e484f7e8c7a2f48f5dbfb847226f159a2166d",
+      "version": "4.6.2"
+    },
+    "nvidia-cutlass-dsl-libs-cu12": {
+      "record_sha256": "8f15bd236e347aa07b97444edf207a10346cf317f69b4859a46f1ce64cd483af",
+      "version": "4.6.2"
+    },
+    "nvidia-cutlass-dsl-libs-cu13": {
+      "record_sha256": "42ee80d8ca125fd07861ca976e741aea927989888e40c66d581ab7e432597671",
+      "version": "4.6.2"
+    },
+    "nvidia-mathdx": {
+      "record_sha256": "dd15083899899f24f2b43637f2fd939fb646bbd56ce6549c970d4e3bd89a2a04",
+      "version": "25.6.0"
+    },
+    "nvidia-ml-py": {
+      "record_sha256": "890e66989a44a39b9d7a6f23c0d47b532959de5bfe78d644a41618d2fffec665",
+      "version": "13.610.43"
+    },
+    "nvidia-modelopt": {
+      "record_sha256": "d7aa41ebb1af6c11147fb4b01ad43c3c81901ef5c871159f503dcbd11b1ab07d",
+      "version": "0.46.0"
+    },
+    "nvidia-nccl-cu13": {
+      "record_sha256": "0178a70a0add8c90bdf1dc4b058f0c68de58665236306926cc60e5628153c04b",
+      "version": "2.30.7"
+    },
+    "nvidia-nvjitlink": {
+      "record_sha256": "899e61ae82bc9a580739fbc73b9c5b91df40e0c30a89026576777561418107a2",
+      "version": "13.3.33"
+    },
+    "nvidia-nvshmem-cu13": {
+      "record_sha256": "19e6b6007f5f4dc9e7114cfcca4bf644d1634b8cc979f391aa4461b60fd83b61",
+      "version": "3.4.5"
+    },
+    "nvidia-nvtx": {
+      "record_sha256": "766e7a208ff69ff69e04b03e971074a64891a7f4c9a9e6c7ab6276ef27dfea23",
+      "version": "13.0.85"
+    },
+    "nvidia-nvvm": {
+      "record_sha256": "33e26add6bc72abea5aedb608040435f720332e8c1bff290bd9c1e355bd34f68",
+      "version": "13.3.73"
+    },
+    "sglang-kernel": {
+      "record_sha256": "e15ab65a008296a71fe67b439cc7af3caee31384c30ef3b45be8bde2b88d1449",
+      "version": "0.4.6.post1"
+    },
+    "tilelang": {
+      "record_sha256": "cbd3ed373dc5fcd0e2fb7ff81ca67aef907980d9d5c63b51e3e7d860935b09d5",
+      "version": "0.1.12"
+    },
+    "torch": {
+      "record_sha256": "d09b389290c885afb8f3849282d19357b110779008aadb9193cf675b816cfc1b",
+      "version": "2.13.0+cu130"
+    },
+    "torchaudio": {
+      "record_sha256": "c8a927f8da6b3f1f91a20a4d1fc60764e0fd83b9e7e2f03f3d143d42fe9c2b50",
+      "version": "2.11.0+cu130"
+    },
+    "torchvision": {
+      "record_sha256": "e7df8bc7cca705302b80d83ef77f6e15af309e32535e15222bf8803903ca93ac",
+      "version": "0.28.0+cu130"
+    },
+    "triton": {
+      "record_sha256": "91b28b3ff92f3324948e5532187d062683a83d5fbc3680c1b8aaa12285ddba30",
+      "version": "3.7.1"
+    }
+  }
+}
