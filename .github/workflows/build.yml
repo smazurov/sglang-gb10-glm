@@ -64,13 +64,19 @@ jobs:
           date=$(date +%Y%m%d)
           echo "tag=glm-flash-v2-${date}-${sha8}" | tee -a "$GITHUB_OUTPUT"
           echo "stable=glm-flash-v2-${sha8}" | tee -a "$GITHUB_OUTPUT"
-      - name: Skip if tag already published
+      - name: Skip only if tag is published AND fully resolvable
         id: present
         run: |
-          if docker manifest inspect "$IMAGE:${{ steps.tag.outputs.stable }}" > /dev/null 2>&1; then
-            echo "Tag already published; build and wheels jobs will be skipped." | tee -a "$GITHUB_STEP_SUMMARY"
+          set -eu -o pipefail
+          # docker manifest inspect alone cannot detect an index whose child
+          # manifests were removed (GHCR versions API lists them as "versions");
+          # a shallow hit there would skip a build and leave a pull-broken tag.
+          if docker manifest inspect "$IMAGE:${{ steps.tag.outputs.stable }}" > /dev/null 2>&1 \
+            && python3 scripts/check-tag-resolvable.py "$IMAGE:${{ steps.tag.outputs.stable }}"; then
+            echo "Tag already published and resolvable; build and wheels jobs will be skipped." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
+            echo "Tag missing or not fully resolvable; building." | tee -a "$GITHUB_STEP_SUMMARY"
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
