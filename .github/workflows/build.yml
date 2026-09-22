@@ -226,8 +226,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Assemble tags on the pushed digest
         run: |
-          # dated tag (deploy reference) + dateless stable tag (the serving repo pins
-          # this one); same digest, no rebuild
+          # dated tag (deploy reference) + dateless stable tag (the serving
+          # repo pins this one); same digest, no rebuild
           docker buildx imagetools create \
             -t "$IMAGE:${{ needs.tag.outputs.tag }}" \
             -t "$IMAGE:${{ needs.tag.outputs.stable }}" \

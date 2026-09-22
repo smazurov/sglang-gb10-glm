@@ -1,8 +1,7 @@
 """Keep PR #33391 logic/tests unchanged; the only behavioral addition wires native IPC.
 
-Ported from the eval suite:test_sglang_pr33391.py; the upstream fixture lives in
-tests/fixtures/. The recipe-order assertion now reads profile.yaml instead of
-the serving profile.
+The upstream fixture lives in tests/fixtures/. The recipe-order assertion
+reads profile.yaml.
 """
 import ast
 from pathlib import Path

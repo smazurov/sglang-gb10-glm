@@ -1,8 +1,8 @@
 """Offline checks for the opt-in GLM wheel/dependency contract.
 
-Ported from the eval suite:test_sglang_dependencies.py: the manifest/lock/
-baseline boundary assertions survive; the Ansible-introspection parts are
-replaced by Dockerfile assertions (the Dockerfile is now the installer).
+The manifest/lock/baseline boundary assertions hold; the
+installer is the Dockerfile, so installer-facing assertions are Dockerfile
+assertions.
 """
 import json
 import unittest

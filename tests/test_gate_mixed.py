@@ -6,8 +6,6 @@ checkable anywhere. Original blocker: the wrapper gate used to assert a 2-D
 prefix shape against combine's 4-D [1, seq, heads, d_v] output and printed
 PASS before validating — a successful CUDA run would have failed the gate.
 These tests pin the fixed structure with AST, no torch needed.
-
-Ported from the eval suite:test_gate_mixed.py.
 """
 import ast
 import unittest

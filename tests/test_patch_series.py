@@ -1,4 +1,4 @@
-"""Bounded diagnostic removal: inspect the integration patch's resulting hunks.
+"""Patch-series fidelity checks (hashes, order, bounded diagnostic removal).
 
 Full-tree application/compile is scripts/verify-tree.py (CI static tier and
 the image build), not emulated here. Removed lines are excluded so old
@@ -6,7 +6,6 @@ upstream comments are not mistaken for retained APIs. Check balanced
 functional-call edits by default; GLM_STAGE (path to a fully applied sglang
 tree) additionally checks the calls in the applied source.
 
-Ported from the eval suite:test_sglang_patch_subset.py to the new layout.
 """
 from pathlib import Path
 import re

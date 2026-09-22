@@ -10,8 +10,9 @@ the pre-test re-run against the real snapshot as a drift check. The image is
 self-validating: its gates are baked into `/opt/glm-gates`, so these commands
 need the image and the cluster's HF cache, not this repository.
 
-Run on the head unless stated otherwise. Record every receipt (command
-output, image digest, checkpoint revision) in the the serving repo's guide's accepted
+Run ad hoc over SSH on the cluster head unless stated otherwise — never in
+CI (no GPUs, no cluster credentials here). Record every receipt (command
+output, image digest, checkpoint revision) in the serving repo's accepted
 tuple or as a comment on the pin-change PR that produced the candidate.
 
 Set up once per session:
@@ -71,20 +72,21 @@ docker run --rm --gpus all "$IMAGE" \
 ```
 
 Expected token: `PASS` in the final output line. Never run T2 while the
-serving pair is resident; drain both ranks first (see the the serving repo's guide).
+serving pair is resident; drain both ranks first (see the serving repo's
+guide).
 
 ## T3 — serving acceptance
 
-Run through the the serving repo sparkrun lane (recipe pins the image; `--tp 2 -H
-the cluster head node,the cluster worker node`), then follow the the serving repo's guide's runtime-acceptance
-section: text/multimodal round-trips with exact assertions, capacity from
-`/get_server_info`, memory observation during working vision. That guide owns
-the accepted tuple; this repo only ever publishes candidates.
+Run through the serving repo's own serving lane (its recipes pin the image),
+then follow its runtime-acceptance section: text/multimodal round-trips with
+exact assertions, capacity from `/get_server_info`, memory observation during
+working vision. That repo owns the accepted tuple; this repo only ever
+publishes candidates.
 
 ## Adoption
 
 A candidate is adopted only after pre-test-drift + T2 + T3 receipts exist for
-it. Then the
-the serving repo's guide's accepted tuple records: image tag + digest, checkpoint
-revision, and the receipts. Updating that tuple is the only way the serving repo
-changes behavior; a GHCR publish alone proves nothing about serving.
+it. Then the serving repo's accepted tuple records: image tag + digest,
+checkpoint revision, and the receipts. Updating that tuple is the only way
+the serving repo changes behavior; a GHCR publish alone proves nothing about
+serving.

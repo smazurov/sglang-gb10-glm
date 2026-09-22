@@ -1,18 +1,15 @@
 # sglang-gb10-glm
 
-Patched SGLang images for **GLM-5.3-Flash on DGX Spark** (GB10/SM121, ARM64),
-published to `ghcr.io/smazurov/sglang-gb10-glm`. This repo owns *image
-maintenance* (upstream SGLang moves, carried patches, wheel overrides) so the
-serving cluster does not have to.
-
-**Sister repo:** `ai-engineering/the serving repo` (private, internal git server
-the internal git server; two-node DGX Spark cluster) — owns serving (sparkrun recipes), the
-deployment/upgrade guide (`stack/GLM-SGLANG.md`), and the accepted image
-tuple. The two repos share no code: the serving repo consumes published image tags;
-this repo references the checkpoint only by `(repository, revision)` pin
-plus a sha256 file contract, and vendors the checkpoint's six MIT-licensed
-interface files (`checkpoint/`) so CI can run the processor gate without
-weights.
+Patched SGLang image for serving **GLM-5.3-Flash** across **two DGX Sparks**
+(GB10/SM121, ARM64, `--tp 2`), published to
+`ghcr.io/smazurov/sglang-gb10-glm`. This repo owns *image maintenance* (the
+pinned dev base, pinned upstream SGLang + carried patches, wheel overrides)
+so the serving cluster does not have to. It shares no code with the serving
+side: it publishes image tags; the checkpoint is referenced only by
+`(repository, revision)` pin plus a sha256 file contract, with the six
+MIT-licensed interface files vendored (`checkpoint/`) so CI can run the
+processor gate without weights. Cluster credentials, hostnames, and topology
+are deliberately absent from this public repo.
 
 ## Current pins (accepted baseline, seeded 2026-09-18)
 
@@ -49,19 +46,21 @@ validation/       commands.md — cluster-side pre-test drift check + T2/T3 (ad 
 | T0 | CI, free `ubuntu-24.04-arm` | patch series applies at pin, exact tree hashes, contract tests, tag determinism | merge |
 | build | CI, `ubuntu-24.04-arm` + `jlumbroso/free-disk-space` | image built LOCALLY with in-build gates: dep contract, offline hash-locked wheel install, tree identity, compileall, import identity, dependency before/after audits, then the CPU processor gate vs the vendored checkpoint interface files — push happens only after the gate passes | publish |
 | T2 | cluster (ad hoc, GPU) | CUDA-kernel/numerical/IPC gates | acceptance |
-| T3 | the serving repo (ad hoc) | serving acceptance per the the serving repo's guide | accepted tuple |
+| T3 | serving repo (ad hoc, over SSH) | serving acceptance per the serving repo's guide | accepted tuple |
 
 Publish ≠ accepted: CI publishes candidates after build + pre-test; only
-recorded T2/T3 receipts change the accepted tuple in the serving repo's guide. The
-gate scripts are baked into the image, so the cluster commands need no code
-from this repo.
+recorded T2/T3 receipts change the accepted tuple in the serving repo's
+guide. The gate scripts are baked into the image, so the cluster commands
+need no code from this repo. Cluster validation is run ad hoc by the
+operator over SSH on the cluster head — never in CI (no GPUs, no cluster
+secrets here) — using only `validation/commands.md` and the published image.
 
 ## Flows
 
 - **Upstream SGLang moves / patch rebases:** edit `profile.yaml` pins (+ the
   Dockerfile ARG defaults; tests assert they match). PR → CI rebuilds with a
-  new content tag → validate on the cluster → the serving repo adopts by pinning the
-  new tag. Nothing auto-follows upstream.
+  new content tag → validate on the cluster (ad hoc, over SSH) → the serving
+  repo adopts by pinning the new tag. Nothing auto-follows upstream.
 - **Checkpoint updates:** bump `checkpoint.revision` (+ `file_contract`
   hashes). Same flow. Checkpoint-coupled validation proves the new pairing.
 - **Content tag:** `scripts/tag.py --sha8` covers profile.yaml, the

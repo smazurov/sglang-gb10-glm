@@ -6,9 +6,6 @@ The guards execute exact added code from the active MXFP8 patch by default:
         python3 -m unittest tests.test_speculation_guards
 The scoped default supplies only the NextN base-constructor test double; it
 never imports SGLang or carries a whole-file overlay.
-
-Ported from the eval suite:test_sglang_speculation.py (the checkpoint-snapshot
-verifier tests remain in the serving repo, where the verifier lives).
 """
 import ast
 import importlib.util
