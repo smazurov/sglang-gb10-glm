@@ -26,6 +26,14 @@ ARG MODEL_REVISION=53e77dbb04fa9dd68725daa899ec92eabf8a872c
 
 FROM ${BASE_IMAGE}
 
+# Re-declared stage-scoped (no defaults): pre-FROM ARGs are only visible to
+# FROM interpolation. Empty re-declaration inherits the global value.
+ARG SGLANG_HEAD
+ARG SGLANG_UPSTREAM_TREE
+ARG SGLANG_PATCHED_TREE
+ARG MODEL_REPOSITORY
+ARG MODEL_REVISION
+
 ENV GLM_OVERLAY=/opt/glm-overlay \
     GLM_GATES=/opt/glm-gates \
     SGLANG_SOURCE=/sgl-workspace/sglang \
