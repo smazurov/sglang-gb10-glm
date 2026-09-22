@@ -18,9 +18,14 @@ class PinTests(unittest.TestCase):
     def test_immutable_pins(self):
         self.assertEqual(PROFILE["profile"], "glm-flash-v2")
         self.assertEqual(PROFILE["image"]["repository"], "ghcr.io/smazurov/sglang-gb10-glm")
+        # The base is the GHCR transport mirror; the immutable pin is the
+        # manifest digest, which mirror-base.yml asserts is byte-identical to
+        # the upstream pin docker.io/lmsysorg/sglang@<same digest>.
+        base = PROFILE["base"]["image"]
+        self.assertTrue(base.startswith("ghcr.io/smazurov/sglang-base@sha256:"), base)
         self.assertEqual(
-            PROFILE["base"]["image"],
-            "lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53",
+            base.split("@", 1)[1],
+            "sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53",
         )
         sglang = PROFILE["sglang"]
         self.assertEqual(sglang["head"], "d6fabb74b45d4fb92796cfb6740810b4811b018e")
