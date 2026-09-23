@@ -36,7 +36,7 @@ accounting, save/reload, and the tokenizer-only negative control. Fails
 closed on any checkpoint metadata drift.
 
 ```bash
-SNAP=/srv/hf-cache/hub/models--local-inference-lab--GLM-5.3-Flash-NVFP4-Spark/snapshots/53e77dbb04fa9dd68725daa899ec92eabf8a872c
+SNAP=/srv/hf-cache/hub/models--local-inference-lab--GLM-5.3-Flash-NVFP4-Spark/snapshots/a608241037e4c2565356bff7ca293f2133888f88
 CFG=/srv/hf-cache/runtime-configs/modelopt-flat-config.json
 
 # Generate the normalized ModelOpt metadata from the checkpoint config (the
@@ -59,7 +59,7 @@ docker run --rm --pull=never --runtime=runc --network=none \
   -v /srv/hf-cache:/cache/huggingface:ro \
   -v "$CFG:$SNAP/config.json:ro" \
   "$IMAGE" /opt/glm-gates/gate-processor.py \
-  /cache/huggingface/hub/models--local-inference-lab--GLM-5.3-Flash-NVFP4-Spark/snapshots/53e77dbb04fa9dd68725daa899ec92eabf8a872c
+  /cache/huggingface/hub/models--local-inference-lab--GLM-5.3-Flash-NVFP4-Spark/snapshots/a608241037e4c2565356bff7ca293f2133888f88
 ```
 
 Expected token: `GLM_PROCESSOR_PASS`. Record the printed shapes/hash map.

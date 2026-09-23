@@ -116,7 +116,7 @@ checkpoint:
   # enter CI. The vendored files let CI run the full CPU processor pre-test;
   # the cluster session re-runs it against the real snapshot as a drift check.
   repository: local-inference-lab/GLM-5.3-Flash-NVFP4-Spark
-  revision: 53e77dbb04fa9dd68725daa899ec92eabf8a872c
+  revision: a608241037e4c2565356bff7ca293f2133888f88
   # sha256 contract over the six small files. NOTE: the config.json entry
   # refers to the NORMALIZED config (the metadata producer's deterministic
   # output), which is what the gate mounts over the original config.json —

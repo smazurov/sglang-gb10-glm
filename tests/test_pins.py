@@ -33,7 +33,7 @@ class PinTests(unittest.TestCase):
         self.assertEqual(sglang["patched_tree"], "4c582984e40ace4a203e369237954df26368bff0")
         checkpoint = PROFILE["checkpoint"]
         self.assertEqual(checkpoint["repository"], "local-inference-lab/GLM-5.3-Flash-NVFP4-Spark")
-        self.assertEqual(checkpoint["revision"], "53e77dbb04fa9dd68725daa899ec92eabf8a872c")
+        self.assertEqual(checkpoint["revision"], "a608241037e4c2565356bff7ca293f2133888f88")
         self.assertEqual(PROFILE["expected_deps"], {
             "torch": "2.13.0+cu130", "tilelang": "0.1.12",
             "flashinfer-python": "0.6.18", "sglang-kernel": "0.4.6.post1",
