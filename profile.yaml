@@ -5,9 +5,11 @@
 # (<tag_prefix>-<date>-<sha8>; sha8 from scripts/tag.py). Nothing here
 # follows a moving tag: base, source and checkpoint are immutable references.
 #
-# The docker/Dockerfile ARG defaults must mirror base/sglang/checkpoint pins
-# exactly; tests/test_pins.py asserts the two never drift. CI passes only
-# image-source metadata (IMAGE_SOURCE/IMAGE_REVISION/IMAGE_VERSION), never pins.
+# The docker/Dockerfile declares these pins as ARGs with NO defaults; they are
+# passed in from here by scripts/build-args.py, so this file is the only place
+# a pin lives. tests/test_pins.py asserts build-args.py covers exactly the
+# Dockerfile's required ARGs and that each value matches this file. CI passes
+# release metadata (IMAGE_SOURCE/IMAGE_REVISION/IMAGE_VERSION) in addition.
 
 profile: glm-flash-v2
 

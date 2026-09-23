@@ -1,7 +1,9 @@
-"""Immutable pin assertions, and Dockerfile/profile pin-drift guard.
+"""Immutable pin assertions and the single-source pin guard.
 
-The Dockerfile ARG defaults must mirror profile.yaml exactly; CI passes only
-release metadata, never pins — so these defaults are the build's actual pins.
+profile.yaml is the single source of truth; scripts/build-args.py turns it
+into --build-arg flags, and the Dockerfile declares those ARGs with no
+defaults. This test asserts build-args.py emits exactly the Dockerfile's
+required (no-default) ARGs and that each value matches profile.yaml.
 """
 import re
 import unittest
@@ -51,14 +53,23 @@ class PinTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(data).hexdigest(), p["sha256"])
                 self.assertTrue(p["markers"], "markers are rebase diagnostics; keep them")
 
-    def test_dockerfile_arg_defaults_mirror_profile(self):
-        args = dict(re.findall(r"^ARG (\w+)=([^\s]*)$", DOCKERFILE, re.M))
-        self.assertEqual(args["BASE_IMAGE"], PROFILE["base"]["image"])
-        self.assertEqual(args["SGLANG_HEAD"], PROFILE["sglang"]["head"])
-        self.assertEqual(args["SGLANG_UPSTREAM_TREE"], PROFILE["sglang"]["upstream_tree"])
-        self.assertEqual(args["SGLANG_PATCHED_TREE"], PROFILE["sglang"]["patched_tree"])
-        self.assertEqual(args["MODEL_REPOSITORY"], PROFILE["checkpoint"]["repository"])
-        self.assertEqual(args["MODEL_REVISION"], PROFILE["checkpoint"]["revision"])
+    def test_build_args_single_source_covers_dockerfile(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("build_args", ROOT / "scripts" / "build-args.py")
+        ba = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ba)
+        provided = ba.pins()
+        self.assertEqual(provided["BASE_IMAGE"], PROFILE["base"]["image"])
+        self.assertEqual(provided["SGLANG_HEAD"], PROFILE["sglang"]["head"])
+        self.assertEqual(provided["SGLANG_UPSTREAM_TREE"], PROFILE["sglang"]["upstream_tree"])
+        self.assertEqual(provided["SGLANG_PATCHED_TREE"], PROFILE["sglang"]["patched_tree"])
+        self.assertEqual(provided["SGLANG_REPOSITORY"], PROFILE["sglang"]["repository"])
+        self.assertEqual(provided["MODEL_REPOSITORY"], PROFILE["checkpoint"]["repository"])
+        self.assertEqual(provided["MODEL_REVISION"], PROFILE["checkpoint"]["revision"])
+        # The emitted set must cover exactly the Dockerfile's required ARGs:
+        # a new no-default ARG without a profile mapping (or a stale mapping)
+        # fails here instead of at build time.
+        self.assertEqual(set(provided), ba.dockerfile_required_args())
 
     def test_dockerfile_applies_series_in_profile_order(self):
         positions = []

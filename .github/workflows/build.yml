@@ -130,6 +130,7 @@ jobs:
             --platform linux/arm64 \
             --load -t "$IMAGE:candidate" \
             -f docker/Dockerfile \
+            $(python3 scripts/build-args.py) \
             --build-arg IMAGE_SOURCE="${{ github.server_url }}/${{ github.repository }}" \
             --build-arg IMAGE_REVISION="${{ github.sha }}" \
             --build-arg IMAGE_VERSION="${{ needs.tag.outputs.tag }}" \
@@ -162,6 +163,7 @@ jobs:
             --platform linux/arm64 \
             --output "type=image,name=$IMAGE,push-by-digest=true,name-canonical=true,push=true" \
             -f docker/Dockerfile \
+            $(python3 scripts/build-args.py) \
             --build-arg IMAGE_SOURCE="${{ github.server_url }}/${{ github.repository }}" \
             --build-arg IMAGE_REVISION="${{ github.sha }}" \
             --build-arg IMAGE_VERSION="${{ needs.tag.outputs.tag }}" \

@@ -1,14 +1,17 @@
 # syntax=docker/dockerfile:1
 # sglang-gb10-glm — patched SGLang for GLM-5.3-Flash on DGX Spark (GB10/SM121, ARM64).
 #
-# All pins are single-sourced in profile.yaml. The ARG defaults below must
-# mirror those pins exactly; tests/test_pins.py asserts the two never drift.
-# CI passes only IMAGE_SOURCE/IMAGE_REVISION/IMAGE_VERSION (release metadata),
-# never pins — a pin change is a profile.yaml + Dockerfile default edit,
-# reviewed together, producing a new content-addressed tag.
+# All pins are single-sourced in profile.yaml and passed in as --build-arg by
+# scripts/build-args.py. The ARGs below are declared WITHOUT defaults so a
+# build that omits them fails closed (empty BASE_IMAGE cannot resolve) rather
+# than silently building against a stale hardcoded value. tests/test_pins.py
+# asserts build-args.py covers exactly the Dockerfile's required ARGs and that
+# each value matches profile.yaml. CI passes release metadata
+# (IMAGE_SOURCE/IMAGE_REVISION/IMAGE_VERSION) in addition to the pins.
 #
 # Build (context = repo root, after scripts/fetch-wheels.py):
 #   docker buildx build --push \
+#     $(python3 scripts/build-args.py) \
 #     --build-arg IMAGE_SOURCE=https://github.com/smazurov/sglang-gb10-glm \
 #     --build-arg IMAGE_REVISION=$(git rev-parse HEAD) \
 #     -f docker/Dockerfile .
@@ -19,13 +22,13 @@
 
 # Base is the GHCR transport mirror of the pinned upstream arm64 manifest
 # (byte-identical; digest asserted equal to upstream by mirror-base.yml).
-# Upstream origin: docker.io/lmsysorg/sglang@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
-ARG BASE_IMAGE=ghcr.io/smazurov/sglang-base@sha256:df8461b8099014daccc1dd548517578f110e601f6e893c55c23a83c2521bed53
-ARG SGLANG_HEAD=d6fabb74b45d4fb92796cfb6740810b4811b018e
-ARG SGLANG_UPSTREAM_TREE=ece17616d5a531bd37cfe476de07a30e6ada0ecb
-ARG SGLANG_PATCHED_TREE=4c582984e40ace4a203e369237954df26368bff0
-ARG MODEL_REPOSITORY=local-inference-lab/GLM-5.3-Flash-NVFP4-Spark
-ARG MODEL_REVISION=a608241037e4c2565356bff7ca293f2133888f88
+# Values come from profile.yaml via scripts/build-args.py — no defaults here.
+ARG BASE_IMAGE
+ARG SGLANG_HEAD
+ARG SGLANG_UPSTREAM_TREE
+ARG SGLANG_PATCHED_TREE
+ARG MODEL_REPOSITORY
+ARG MODEL_REVISION
 
 FROM ${BASE_IMAGE}
 
@@ -91,7 +94,7 @@ RUN --network=none set -eux; \
 # the overlay patches. Commit, upstream tree, patch shas and the resulting
 # patched tree are all asserted; the import-identity check makes it impossible
 # to ship an image whose runtime source is not exactly the intended tree.
-ARG SGLANG_REPOSITORY=https://github.com/sgl-project/sglang.git
+ARG SGLANG_REPOSITORY
 RUN set -eux; \
     git init -q /tmp/sglang-src; \
     cd /tmp/sglang-src; \
